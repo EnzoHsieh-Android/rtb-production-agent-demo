@@ -274,6 +274,85 @@ def t_canary_findings():
     check("findings: 非整數 rc!=0", r.returncode != 0, f"rc={r.returncode}")
 
 
+
+def t_canary_negative_findings_rejected():
+    """發現數量錯寫成負數，不能把無法判定的帳追加進去。"""
+    import json as _j
+    for opt in (False, True):
+        v = mkvault()
+        root = v.parent
+        report = root / "clean-count.md"
+        report.write_text("severity: clean\n\n合法的零發現報告。\n", encoding="utf-8")
+        snap = root / "count-spec.patch"
+        snap.write_text("這是零發現輪的固定審查材料。\n", encoding="utf-8")
+        h = _sha256_of(snap)
+        def call(*args):
+            return subprocess.run([sys.executable, *(["-O"] if opt else []),
+                                   GRAPHCTL, "--vault", str(v), *args],
+                                  capture_output=True, text=True)
+        ledger = root / ".canary-log.jsonl"
+        first_bad = call("canary", "record", "none", "--findings", "-100")
+        check(f"未有帳負數 opt={opt}:rc2指出數量",
+              first_bad.returncode == 2 and "--findings" in first_bad.stderr and "-100" in first_bad.stderr,
+              first_bad.stdout + first_bad.stderr)
+        check(f"未有帳負數 opt={opt}:不建立帳本且無成功訊息",
+              not ledger.exists() and "✓" not in first_bad.stdout, first_bad.stdout)
+        seed = call("canary", "record", "none", "--findings", "0")
+        check(f"負數現場 opt={opt}:合法種子確實落帳",
+              seed.returncode == 0 and ledger.exists(), seed.stdout + seed.stderr)
+        if seed.returncode != 0 or not ledger.exists():
+            continue
+        for kind in ("none", "caught", "missed"):
+            before = ledger.read_bytes()
+            bad = call("canary", "record", kind, "--findings", "-1")
+            check(f"負數拒收 opt={opt} kind={kind}:rc2與參數診斷",
+                  bad.returncode == 2 and "--findings" in bad.stderr and "-1" in bad.stderr,
+                  bad.stdout + bad.stderr)
+            check(f"負數拒收 opt={opt} kind={kind}:帳本逐位元不變且無成功訊息",
+                  ledger.read_bytes() == before and "✓" not in bad.stdout, bad.stdout)
+        before = ledger.read_bytes()
+        bad = call("canary", "record", "none", "--loop", "code-negative-count",
+                   "--round", "r1", "--auditor", "通才-codex", "--severity", "clean",
+                   "--findings", "-2", "--tier", "standard", "--report", str(report),
+                   "--snapshot", str(snap), "--spec", str(snap), "--reviewed", h)
+        check(f"負數審查席 opt={opt}:有效留痕仍須rc2診斷負值",
+              bad.returncode == 2 and "--findings" in bad.stderr and "-2" in bad.stderr,
+              bad.stdout + bad.stderr)
+        check(f"負數審查席 opt={opt}:帳本逐位元不變",
+              ledger.read_bytes() == before, bad.stdout)
+        malformed = root / "malformed-count.md"
+        malformed.write_text("# misplaced header\nseverity: clean\n", encoding="utf-8")
+        before = ledger.read_bytes()
+        bad = call("canary", "record", "none", "--loop", "code-negative-order",
+                   "--round", "r1", "--auditor", "通才-codex", "--severity", "clean",
+                   "--findings", "-1", "--tier", "standard", "--report", str(malformed),
+                   "--snapshot", str(snap), "--spec", str(snap), "--reviewed", h)
+        check(f"負數先驗 opt={opt}:即使報告格式錯仍診斷數量",
+              bad.returncode == 2 and "--findings" in bad.stderr and "-1" in bad.stderr,
+              bad.stdout + bad.stderr)
+        check(f"負數先驗 opt={opt}:canary帳本不追加",
+              ledger.read_bytes() == before and "✓" not in bad.stdout, bad.stdout)
+        for val in (None, 0, 2):
+            args = ["canary", "record", "none"]
+            if val is not None:
+                args += ["--findings", str(val)]
+            good = call(*args)
+            row = _j.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
+            check(f"合法數量 opt={opt} value={val}:成功且欄位保留原樣",
+                  good.returncode == 0 and (("findings" not in row) if val is None else row.get("findings") == val),
+                  good.stdout + good.stderr)
+        for auditor in ("通才-codex", "架構對齊-codex"):
+            good = call("canary", "record", "none", "--loop", "code-legal-count",
+                        "--round", "r1", "--auditor", auditor, "--severity", "clean",
+                        "--findings", "0", "--tier", "standard", "--report", str(report),
+                        "--snapshot", str(snap), "--spec", str(snap), "--reviewed", h)
+            check(f"合法空輪 opt={opt} auditor={auditor}:記帳成功",
+                  good.returncode == 0, good.stdout + good.stderr)
+        gate = call("loop", "status", "code-legal-count", "--disposal", "--spec", str(snap), "--repo", str(root))
+        check(f"合法空輪 opt={opt}:實際處置閘通過",
+              gate.returncode == 0 and "DISPOSAL GATE PASS" in gate.stdout, gate.stdout + gate.stderr)
+
+
 def t_loop_gate():
     vault, repo, spec_ok, spec_bad = _mk_gate_fixture()
 
@@ -2071,7 +2150,7 @@ def t_concurrent_append_same_note():
     r4 = sp.run([sys.executable, GRAPHCTL, "--vault", str(v), "append", "F", "tags", "z"],
                 capture_output=True, text=True, env={**_os2.environ, "HOME": str(fake_home), "USERPROFILE": str(fake_home)})
     check("④鎖的資料夾建不起來也照寫、而且講一聲", r4.returncode == 0 and "- z" in read(p2) and "鎖" in r4.stderr, r4.stderr[-300:])
-    # ⑤ 鎖是跟專案既有的同一套(建鎖檔+過期接手),不是另一套機制(第四輪架構席)
+    # ⑤ 鎖是跟專案既有的同一套(獨佔建鎖檔;過期不再自動接手),不是另一套機制(第四輪架構席)
     import inspect as _insp
     src_lock = _insp.getsource(m._vault_write_lock)
     check("⑤寫入鎖用專案既有的鎖檔做法(_excl_lock_try),沒有另開 flock/msvcrt", "_excl_lock_try" in src_lock
@@ -5981,7 +6060,7 @@ def t_doctor_ci_writes_run_marker():
     root, vault, docs = _run_marker_repo("gctl-runmark-")
     try:
         r = run(vault, "doctor", "--ci")
-        log = docs / ".governance-log.jsonl"
+        log = docs / ".governance-local.jsonl"      # doctor-run 是例行觀察,寫本機帳(治理帳例行紀錄分流_計劃)
         rows = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()] if log.exists() else []
         runs = [x for x in rows if x.get("gate") == "doctor-run"]
         check("run-marker: 乾淨 --ci 恰一筆 doctor-run", len(runs) == 1, f"rc={r.returncode} rows={rows}")
@@ -6350,8 +6429,8 @@ def t_panel_probe_retired():
     check("retired: 拒判訊息指路 --disposal", "--disposal" in ra.stderr and "僅供舊迴圈回放" in ra.stderr, ra.stderr[-300:])
     # (b) code-* major+accepted → FAIL;散文同構 → PASS(用 --disposal,無 spec 綁定的最小帳)
     specf = v / "Systems" / "strict-spec.md"
-    specf.write_text("severity: major\n## f1\nseverity: major\n引句素材行,長度超過十個字元。\n", encoding="utf-8")   # 兼當席報告:檔首檔級行+一條宣告(2026-09-09 寫側拒收沒正規化的報告)
-    specm = v / "Systems" / "strict-spec-minor.md"; specm.write_text("severity: minor\n## f1\nseverity: minor\n引句素材行,長度超過十個字元。\n", encoding="utf-8")   # minor 記帳用的報告(帳面不得低於報告最高)
+    specf.write_text("severity: major\n## f1\nseverity: major\n引句：「引句素材行,長度超過十個字元。」\n", encoding="utf-8")   # 兼當席報告:檔首檔級行+一條宣告(2026-09-09 寫側拒收沒正規化的報告)
+    specm = v / "Systems" / "strict-spec-minor.md"; specm.write_text("severity: minor\n## f1\nseverity: minor\n引句：「引句素材行,長度超過十個字元。」\n", encoding="utf-8")   # minor 記帳用的報告(帳面不得低於報告最高)
     import hashlib as _hl
     sha = _hl.sha256(specf.read_bytes()).hexdigest()
     for lp, sev in (("code-strict-t", "major"), ("prose-strict-t", "major")):
@@ -6365,7 +6444,7 @@ def t_panel_probe_retired():
           rb.returncode == 1 and "major 一律折" in rb.stdout, rb.stdout[-400:])
     rc_ = run(v, "loop", "status", "prose-strict-t", "--disposal", "--spec", str(specf))
     check("retired: 散文同構(major+accepted)不觸發 code 嚴格則訊息",
-          "major 一律折" not in rc_.stdout, rc_.stdout[-400:])
+          rc_.returncode == 0 and "major 一律折" not in rc_.stdout, rc_.stdout[-400:])
     # (c) 舊迴圈(harness cutoff=9999 → 視為舊)panel PASS 印行=觀測語意
     _u = _sec.token_hex(3)
     for rnd in ("r1", "r2"):
@@ -6483,6 +6562,501 @@ def t_gov_stats_gate_drift():
           "if gate not in _KNOWN_GATES:" in src,
           "找不到動態寫入器的名單檢查——動態閘名會逃過漂移掃描")
     check("stats: _KNOWN_GATES 非空且含 check-s/canary", "check-s" in m and "canary" in m, str(m))
+
+
+def _gov_split_repo():
+    """git 專案 + docs/ 底下的 vault(帳檔落在 docs/,同真實佈局)+ 已提交的版控帳;回 (root, docs, vault, git)。"""
+    import subprocess as _sp
+    root = Path(tempfile.mkdtemp(prefix="gctl-govsplit-"))
+    docs = root / "docs"
+    vault = docs / "kg"
+    for sub in ("Systems", "Verification", "Projects", "MOC"):
+        (vault / sub).mkdir(parents=True)
+    (vault / "MOC" / "idx.md").write_text("---\ntype: moc\n---\n# idx\n", encoding="utf-8")
+    (vault / "Systems" / "甲.md").write_text("---\ntype: system\nstatus: done\nsummary: |-\n  FACT:甲 [來源:人工] [confirmed:2026-10-01]\n---\n# 甲\n", encoding="utf-8")
+    (docs / ".governance-log.jsonl").write_text('{"ts": "2026-10-01T00:00:00+00:00", "commit": "x", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": []}\n', encoding="utf-8")
+    (docs / ".usage-log.jsonl").write_text('{"ts": "2026-10-01T00:00:00", "node": "Systems/甲.md", "cmd": "show"}\n', encoding="utf-8")
+    (root / ".gitignore").write_text("docs/.governance-local.jsonl\ndocs/.usage-local.jsonl\n", encoding="utf-8")
+
+    def git(*a):
+        return _sp.run(["git", "-C", str(root), *a], capture_output=True, text=True)
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+    return root, docs, vault, git
+
+
+def t_gov_split_routine_goes_local():
+    """[治理帳例行紀錄分流 S1] 例行操作(doctor --ci、show、context)之後,所有進版控的檔一個位元組都不變,
+    例行紀錄在本機帳。"""
+    import json as _j, shutil as _sh
+    root, docs, vault, git = _gov_split_repo()
+    try:
+        before = {p: (docs / p).read_bytes() for p in (".governance-log.jsonl", ".usage-log.jsonl")}
+        run(vault, "doctor", "--ci")
+        run(vault, "show", "Systems/甲")
+        run(vault, "context", "Systems/甲", "--brief")
+        st = git("status", "--porcelain").stdout
+        check("①例行操作之後 git status 乾淨(版控檔沒動、本機帳被忽略)", st.strip() == "", st)
+        check("②版控帳與舊使用紀錄帳一個位元組都沒變",
+              all((docs / p).read_bytes() == b for p, b in before.items()), "")
+        loc = [_j.loads(x) for x in (docs / ".governance-local.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()] \
+            if (docs / ".governance-local.jsonl").exists() else []
+        check("③doctor-run 寫進本機帳", any(e.get("gate") == "doctor-run" and e.get("kind") == "ran" for e in loc), str(loc)[:300])
+        use = (docs / ".usage-local.jsonl").read_text(encoding="utf-8") if (docs / ".usage-local.jsonl").exists() else ""
+        check("④show 與 context 寫進新的本機使用紀錄帳", '"cmd": "show"' in use and '"cmd": "context"' in use, use[:300])
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  ✓ t_gov_split_routine_goes_local")
+
+
+def t_gov_split_decisions_stay_tracked():
+    """[治理帳例行紀錄分流 S2] 不在本機名單上的「閘名+種類」、hard 不是恰好 False 的,一律進版控帳;
+    code-loop 的留痕只靠版控帳讀得到。"""
+    import shutil as _sh
+    m = _load_lumos()
+    r = m._gov_routes_local
+    stay = [
+        {"gate": "bound-tests", "kind": "green", "hard": False},          # 多平台沒跑的也記 green(設計審 r3)
+        {"gate": "bound-tests", "kind": "skipped-flag", "hard": False},   # 人帶旗標略過
+        {"gate": "bound-tests", "kind": "unfilterable", "hard": False},   # 會擋推但 hard 為假
+        {"gate": "check-j", "kind": "shallow-skip", "hard": False},
+        {"gate": "drift-check", "kind": "warned", "hard": False},         # 提醒模式下放行
+        {"gate": "note-shape", "kind": "relaxed", "hard": False},
+        {"gate": "nodehome-check", "kind": "blocked", "hard": True},
+        {"gate": "nodehome-check", "kind": "passed"},                     # 缺 hard
+        {"gate": "nodehome-check", "kind": "passed", "hard": "false"},    # hard 不是布林
+        {"gate": "nodehome-check", "kind": "passed", "hard": 0},          # 0 不是 False
+        {"gate": "nodehome-check", "kind": None, "hard": False},
+        {"gate": ["nodehome-check"], "kind": "passed", "hard": False},
+        {"gate": "code-loop", "kind": "skipped-env", "hard": False},
+        {"gate": "code-loop", "kind": "passed", "hard": False},
+        {"gate": "fix-check", "kind": "passed", "hard": False},
+        {"gate": "design-loop", "kind": "converged", "hard": False},
+        {"gate": "delguard", "kind": "degraded", "hard": False},
+    ]
+    bad = [e for e in stay if r(e)]
+    check("①擋人、略過、繞道、放行、主動決定、型別不對的事件都不進本機帳", not bad, str(bad))
+    check("②乾淨通過的觀察進本機帳(前置:判定不是永遠回 False)",
+          r({"gate": "nodehome-check", "kind": "passed", "hard": False}) and r({"gate": "doctor-run", "kind": "ran", "hard": False}), "")
+    root, docs, _vault, git = _gov_split_repo()
+    try:
+        before = (docs / ".governance-log.jsonl").read_text(encoding="utf-8")
+        m._gate_event(root, "code-loop", "skipped-env", "LUMOS_SKIP", hard=False)
+        m._gate_event(root, "nodehome-check", "passed", "ok", hard=False)
+        after = (docs / ".governance-log.jsonl").read_text(encoding="utf-8")
+        loc = (docs / ".governance-local.jsonl").read_text(encoding="utf-8")
+        check("③code-loop 的略過痕跡寫進版控帳", '"skipped-env"' in after[len(before):], after[len(before):])
+        check("④nodehome-check 的 passed 寫進本機帳、不進版控帳", '"passed"' in loc and "nodehome-check" not in after[len(before):], loc)
+        br = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        m._codeloop_gov_log(root, br, "passed", "n", "abc123", "2026-10-04T00:00:00+00:00")
+        check("⑤code-loop 留痕只靠版控帳讀得到(本機帳不在也一樣)",
+              (m._codeloop_read_from_ledger(root, br) or {}).get("status") == "passed", "")
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  ✓ t_gov_split_decisions_stay_tracked")
+
+
+def t_gov_split_readers_union():
+    """[治理帳例行紀錄分流 S3] 統計類讀者兩本合起來、依時間排序;判定類讀者只讀版控帳。"""
+    import json as _j, shutil as _sh
+    m = _load_lumos()
+    root, docs, vault, _git = _gov_split_repo()
+    try:
+        tr = docs / ".governance-log.jsonl"
+        loc = docs / ".governance-local.jsonl"
+        with open(tr, "a", encoding="utf-8") as f:
+            f.write(_j.dumps({"ts": "2026-10-02T00:00:00+00:00", "gate": "spec-gate", "kind": "spec-gate-run", "hard": False,
+                              "nodes": ["P"], "note": "舊"}) + "\n")
+            f.write(_j.dumps({"ts": "not-a-time", "gate": "x", "kind": "y"}) + "\n")
+        loc.write_text(_j.dumps({"ts": "2026-10-03T09:00:00+09:00", "gate": "spec-gate", "kind": "spec-gate-run", "hard": False,
+                                 "nodes": ["P"], "note": "新"}) + "\n"
+                       + _j.dumps({"ts": "2026-10-01T00:00:00+00:00", "gate": "code-loop", "kind": "passed", "hard": False,
+                                   "branch": "zz", "head_sha": "abc"}) + "\n", encoding="utf-8")
+        rows = m._gov_ledger_rows_by_time(docs)
+        sg = [d["note"] for d in rows if d.get("kind") == "spec-gate-run"]
+        check("①依時間排序(跨時區換算後)、後寫者在後", sg == ["舊", "新"], str(sg))
+        check("②解析不了的時間排最前", rows[0].get("ts") == "not-a-time", str(rows[:2]))
+        g = subprocess.run([sys.executable, GRAPHCTL, "--vault", str(vault), "gov", "--stats", "--since", "9999"],
+                           capture_output=True, text=True)
+        check("③gov --stats 的載入源含本機帳", "governance-local" in g.stdout, g.stdout[:400])
+        check("④判定類讀者不讀本機帳(本機帳裡的 code-loop 事件讀不到)",
+              m._codeloop_read_from_ledger(root, "zz") is None, "")
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  ✓ t_gov_split_readers_union")
+
+
+def t_gov_split_local_write_failure():
+    """[治理帳例行紀錄分流 S4] 本機帳寫不進去,不連累同批要進版控帳的事件;_gate_event 那一路照舊回 False。"""
+    import shutil as _sh
+    m = _load_lumos()
+    root, docs, vault, _git = _gov_split_repo()
+    try:
+        _break_for_write(docs / ".governance-local.jsonl")
+        before = (docs / ".governance-log.jsonl").read_text(encoding="utf-8")
+        m._append_governance_log(vault, [{"gate": "doctor-run", "kind": "ran", "hard": False, "nodes": []},
+                                         {"gate": "check-r", "kind": "blocked", "hard": True, "nodes": ["N"]}])
+        new = (docs / ".governance-log.jsonl").read_text(encoding="utf-8")[len(before):]
+        check("①同批的擋人紀錄照樣寫進版控帳", '"check-r"' in new and '"blocked"' in new, new)
+        check("②本機帳那筆沒混進版控帳", "doctor-run" not in new, new)
+        check("③_gate_event 走本機帳寫不進去回 False", m._gate_event(root, "nodehome-check", "passed", "ok", hard=False) is False, "")
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  ✓ t_gov_split_local_write_failure")
+
+
+def t_gov_split_ignore_rule():
+    """[治理帳例行紀錄分流 S5] 既有 vault 補 docs/.gitignore:不存在建一份只含兩行、缺行補上、已有不重複、
+    尾端沒換行先補、CRLF 檔沿用 CRLF、docs/ 不存在什麼都不做。"""
+    import shutil as _sh
+    m = _load_lumos()
+    lines = list(m._LOCAL_LOG_IGNORE_LINES)
+    root = Path(tempfile.mkdtemp(prefix="gctl-govsplit-gi-"))
+    try:
+        check("①docs/ 不存在:什麼都不做", m._ensure_docs_gitignore(root / "docs") == [] and not (root / "docs").exists(), "")
+        docs = root / "docs"
+        docs.mkdir()
+        m._ensure_docs_gitignore(docs)
+        body = (docs / ".gitignore").read_text(encoding="utf-8")
+        check("②不存在:建一份,只含本機帳兩行(不套整份清單)",
+              all(n in body.splitlines() for n in lines) and ".bypass-log.jsonl" not in body and ".kill-log.jsonl" not in body, body)
+        check("③已有:不重複", m._ensure_docs_gitignore(docs) == [] and (docs / ".gitignore").read_text(encoding="utf-8") == body, "")
+        (docs / ".gitignore").write_bytes(b".ci-log.jsonl")          # 尾端沒換行
+        m._ensure_docs_gitignore(docs)
+        raw = (docs / ".gitignore").read_bytes()
+        check("④尾端沒換行:先補換行,不把規則黏成一行", raw.startswith(b".ci-log.jsonl\n") and all((n + "\n").encode() in raw for n in lines), raw)
+        (docs / ".gitignore").write_bytes(b".ci-log.jsonl\r\n" + lines[0].encode() + b"\r\n")
+        added = m._ensure_docs_gitignore(docs)
+        raw = (docs / ".gitignore").read_bytes()
+        check("⑤CRLF 檔:只補缺的那行、沿用 CRLF、不改原有行", added == lines[1:] and raw == b".ci-log.jsonl\r\n" + lines[0].encode() + b"\r\n" + lines[1].encode() + b"\r\n", raw)
+        (docs / ".gitignore").write_bytes(b"  " + lines[0].encode() + b"\n")
+        check("⑥行首有空白的不算有(跟 git 一樣)", lines[0] in m._ensure_docs_gitignore(docs), (docs / ".gitignore").read_bytes())
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  ✓ t_gov_split_ignore_rule")
+
+
+def t_gov_split_pairs_drift():
+    """[治理帳例行紀錄分流 S6] 本機名單的閘名都在 _KNOWN_GATES、每個「閘名+種類」在程式裡有寫入點,
+    判定類讀者讀的三個閘不在名單上。"""
+    import re as _re
+    m = _load_lumos()
+    src = Path(GRAPHCTL).read_text(encoding="utf-8")
+    pairs = sorted(m._GOV_LOCAL_PAIRS)
+    check("①前置:名單非空", len(pairs) >= 10, str(pairs))
+    unknown = [g for g, _k in pairs if g not in m._KNOWN_GATES]
+    check("②名單的閘名都在 _KNOWN_GATES", not unknown, str(unknown))
+    no_writer = []
+    for g, k in pairs:
+        # 寫入點三種樣子:字面 {"gate": g, "kind": k}、_gate_event*(… g, k …)、閘的寫入函式裡算 kind 的運算式出現 k
+        lit = f'"gate": "{g}", "kind": "{k}"' in src
+        call = _re.search(r'_gate_event\w*\([^()\n]*"' + _re.escape(g) + r'", *"' + _re.escape(k) + '"', src) is not None
+        dyn = {"nodehome-check": "_home_check", "drift-check": "def _drift_m1_ledger", "delguard": "_delguard_log_result(gr,",
+               "daily-wrapper": '"daily-wrapper"', "note-reread": '"note-reread"'}.get(g)
+        near = dyn is not None and any(f'"{k}"' in src[i:i + 6000] for i in [mm.start() for mm in _re.finditer(_re.escape(dyn), src)])
+        if not (lit or call or near):
+            no_writer.append((g, k))
+    check("③每個「閘名+種類」在程式裡有寫入點", not no_writer, str(no_writer))
+    judged = {g for g, _k in pairs} & {"code-loop", "fix-check", "design-loop"}
+    check("④code-loop、fix-check、design-loop 不在名單上", not judged, str(judged))
+    print("  ✓ t_gov_split_pairs_drift")
+
+
+def t_gov_split_review_r1_fixes():
+    """治理帳例行紀錄分流代碼審 r1 折入:①度量撤除條件數的是走本機帳的閘時,暖機護欄看本機帳(沒有本機帳就不判),
+    不再因版控帳夠舊就放行、把「本機帳不在」誤判成零筆;②合讀只在 \\n 切行、深層巢狀的壞行只跳那一行;
+    ③本機帳已被版控追蹤時 doctor 要提醒。"""
+    import datetime as _dt
+    import json as _j
+    m = _load_lumos()
+    now = _dt.datetime(2026, 10, 2, 12, 0, tzinfo=_dt.timezone.utc)
+    v = mkvault()
+    write(v, "Systems/M.md", "type: system\nstatus: doing\nsummary: |-\n"
+          "  RULE:甲 [依據:人] [since:2026-06-01] [retire:度量 check-s.warned == 0 近4週]\n", body="# M\n")
+    gl, gll = v.parent / ".governance-log.jsonl", v.parent / ".governance-local.jsonl"
+    gl.write_text(_j.dumps({"ts": "2026-06-20T00:00:00+00:00", "gate": "code-loop", "kind": "passed"}) + "\n", encoding="utf-8")
+    gll.write_text(_j.dumps({"ts": "2026-09-30T00:00:00+00:00", "gate": "check-s", "kind": "warned", "hard": False}) + "\n",
+                   encoding="utf-8")
+    check("①前置:check-s.warned 在本機名單上", ("check-s", "warned") in m._GOV_LOCAL_PAIRS, "")
+    check("①前置:有本機帳時不列(兩天前剛喊過)", m._doctor_metric_lines(m.Env(v), v.parent, now=now) == [], "")
+    gll.unlink()
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("①★本機帳不在:不判,不因版控帳夠舊就說該撤★", got == [], str(got))
+    gll.write_text(_j.dumps({"ts": "2026-09-30T00:00:00+00:00", "gate": "doctor-run", "kind": "ran", "hard": False}) + "\n",
+                   encoding="utf-8")
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("①本機帳不滿 4 週:照暖機規則不判", got == [], str(got))
+    gll.write_text("".join(_j.dumps({"ts": f"2026-08-0{d}T00:00:00+00:00", "gate": "doctor-run", "kind": "ran", "hard": False}) + "\n"
+                           for d in (1, 2)), encoding="utf-8")
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("①反面:本機帳夠舊、近 4 週真的零筆 → 列出", len(got) == 1 and "甲" in got[0], str(got))
+    d = Path(tempfile.mkdtemp(prefix="gctl-govsplit-r1-"))
+    (d / ".governance-log.jsonl").write_text(
+        _j.dumps({"ts": "2026-10-01T00:00:00+00:00", "gate": "x", "kind": "y", "note": "a\u2028b\u0085c"}, ensure_ascii=False)
+        + "\n" + "[" * 200000 + "\n", encoding="utf-8")
+    try:
+        rows = m._gov_ledger_rows_by_time(d)
+        check("②含 U+2028/U+0085 的一筆讀得回來、深層巢狀壞行只跳那一行", len(rows) == 1 and rows[0]["gate"] == "x", str(rows)[:200])
+    except RecursionError:
+        check("②含 U+2028/U+0085 的一筆讀得回來、深層巢狀壞行只跳那一行", False, "RecursionError")
+    root, docs, _vault, git = _gov_split_repo()
+    (docs / ".governance-local.jsonl").write_text("{}\n", encoding="utf-8")
+    git("add", "-f", "docs/.governance-local.jsonl")
+    msgs = m._local_ledger_doctor_msgs(docs, 5)
+    check("③本機帳已被追蹤 → 提醒(git rm --cached)", any("追蹤" in x and "rm --cached" in x for x in msgs), str(msgs))
+    # ④本機帳或 docs/.gitignore 是捷徑:不跟過去寫到別處
+    root, docs, vault, _git = _gov_split_repo()
+    outside = Path(tempfile.mkdtemp(prefix="gctl-govsplit-out-"))
+    tgt = outside / "target.txt"
+    tgt.write_text("原樣\n", encoding="utf-8")
+    (docs / ".governance-local.jsonl").symlink_to(tgt)
+    m._append_governance_log(vault, [{"gate": "doctor-run", "kind": "ran", "hard": False, "nodes": []}])
+    ok_ge = m._gate_event(root, "delguard", "ok", "x", hard=False)
+    check("④本機帳是捷徑:兩支寫入器都不跟過去寫", tgt.read_text(encoding="utf-8") == "原樣\n" and ok_ge is False,
+          tgt.read_text(encoding="utf-8")[:200])
+    (docs / ".gitignore").unlink(missing_ok=True)
+    (docs / ".gitignore").symlink_to(tgt)
+    got = m._ensure_docs_gitignore(docs)
+    check("④docs/.gitignore 是捷徑:不動(捷徑留著、指的檔不改),交給 doctor 提醒",
+          got == [] and tgt.read_text(encoding="utf-8") == "原樣\n" and (docs / ".gitignore").is_symlink(), str(got))
+    (docs / ".gitignore").unlink()
+    (docs / ".gitignore").write_bytes(b"\xff\xfe x\n")
+    check("④不是 UTF-8 的 .gitignore 不動", m._ensure_docs_gitignore(docs) == [] and (docs / ".gitignore").read_bytes() == b"\xff\xfe x\n", "")
+    print("  ✓ t_gov_split_review_r1_fixes")
+
+
+def t_gov_split_review_r2_fixes():
+    """治理帳例行紀錄分流代碼審 r2 折入:①帳檔是管線或特殊裝置檔時讀者不卡住;②查閱紀錄不跟捷徑寫;
+    ③.gitignore 是硬連結不動、使用者的內容一個位元組不改、兩次補不重複;④度量暖機取帳裡第一筆,一筆寫壞的極早時間不讓護欄失效;
+    ⑤合讀整份讀,不只讀檔尾。"""
+    import datetime as _dt
+    import json as _j
+    import os as _os
+    import threading as _th
+    m = _load_lumos()
+    root, docs, vault, _git = _gov_split_repo()
+    fifo = docs / ".governance-local.jsonl"
+    _os.mkfifo(fifo)
+    res = {}
+
+    def _read():
+        res["rows"] = m._gov_ledger_rows_by_time(docs)
+        try:
+            m._gov_tail_bytes(fifo)
+            res["tail"] = "沒丟錯"
+        except OSError:
+            res["tail"] = "丟錯"
+    th = _th.Thread(target=_read, daemon=True)
+    th.start()
+    th.join(10)
+    check("①本機帳是管線:合讀與讀檔尾都不卡住、照讀版控帳", not th.is_alive() and len(res.get("rows", [])) == 1
+          and res.get("tail") == "丟錯", str(res)[:200])
+    r = subprocess.run([sys.executable, GRAPHCTL, "--vault", str(vault), "gov"], capture_output=True, text=True, timeout=60)
+    check("①lumos gov 遇到管線不卡住", r.returncode == 0, r.stderr[-300:])
+    fifo.unlink()
+    outside = Path(tempfile.mkdtemp(prefix="gctl-govsplit-out2-"))
+    tgt = outside / "t.txt"
+    tgt.write_text("原樣\n", encoding="utf-8")
+    (docs / ".usage-local.jsonl").symlink_to(tgt)
+    subprocess.run([sys.executable, GRAPHCTL, "--vault", str(vault), "show", "Systems/甲"], capture_output=True, text=True, timeout=60)
+    check("②查閱紀錄本機帳是捷徑:不跟過去寫", tgt.read_text(encoding="utf-8") == "原樣\n", tgt.read_text(encoding="utf-8")[:200])
+    gi = docs / ".gitignore"
+    gi.unlink(missing_ok=True)
+    other = outside / "g2"
+    other.write_text("node_modules\n", encoding="utf-8")
+    _os.link(other, gi)
+    check("③硬連結的 .gitignore 不動", m._ensure_docs_gitignore(docs) == [] and gi.stat().st_nlink == 2
+          and other.read_text(encoding="utf-8") == "node_modules\n", "")
+    gi.unlink()
+    gi.write_bytes(b"# mine\r\nfoo")
+    first = m._ensure_docs_gitignore(docs)
+    again = m._ensure_docs_gitignore(docs)
+    body = gi.read_bytes()
+    check("③追加:原內容位元組不改、沿用 CRLF、再跑一次不重複", body.startswith(b"# mine\r\nfoo\r\n") and len(first) == 2
+          and again == [] and body.count(b".governance-local.jsonl") == 1, repr(body))
+    now = _dt.datetime(2026, 10, 2, 12, 0, tzinfo=_dt.timezone.utc)
+    v = mkvault()
+    write(v, "Systems/M.md", "type: system\nstatus: doing\nsummary: |-\n"
+          "  RULE:甲 [依據:人] [since:2026-06-01] [retire:度量 check-s.warned == 0 近4週]\n", body="# M\n")
+    (v.parent / ".governance-log.jsonl").write_text(
+        _j.dumps({"ts": "2026-06-20T00:00:00+00:00", "gate": "code-loop", "kind": "passed"}) + "\n", encoding="utf-8")
+    (v.parent / ".governance-local.jsonl").write_text(
+        _j.dumps({"ts": "2026-10-01T00:00:00+00:00", "gate": "doctor-run", "kind": "ran", "hard": False}) + "\n"
+        + _j.dumps({"ts": "0001-01-01T00:00:00+05:00", "gate": "doctor-run", "kind": "ran", "hard": False}) + "\n", encoding="utf-8")
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("④本機帳第一筆是昨天、後面混一筆極早時間:仍在暖機、不判", got == [], str(got))
+    d = Path(tempfile.mkdtemp(prefix="gctl-govsplit-r2-"))
+    (d / ".governance-log.jsonl").write_text(
+        _j.dumps({"ts": "2026-01-01T00:00:00+00:00", "gate": "spec-gate", "kind": "spec-gate-run"}) + "\n"
+        + ("x" * 1023 + "\n") * (m._GOV_TAIL_CAP // 1024 + 64), encoding="utf-8")
+    rows = m._gov_ledger_rows_by_time(d)
+    check("⑤合讀整份讀:超過檔尾上限時檔頭那筆也讀得到", len(rows) == 1 and rows[0]["gate"] == "spec-gate", str(rows)[:200])
+    print("  ✓ t_gov_split_review_r2_fixes")
+
+
+def t_gov_split_review_r3_fixes():
+    """治理帳例行紀錄分流代碼審 r3 折入:①本機帳是管線時三支寫入器不卡住;②補 .gitignore 不拿鎖(鎖壞掉也照補)、
+    不動的情況印出原因與要手動加的行;③暖機起點取第二早:帳首一筆 1970 或 2099 都不讓護欄失效或卡死;
+    ④讀檔尾遇到不是一般檔案丟錯,不回空。"""
+    import contextlib
+    import datetime as _dt
+    import io
+    import json as _j
+    import os as _os
+    import threading as _th
+    m = _load_lumos()
+    root, docs, vault, _git = _gov_split_repo()
+    for name in (".governance-local.jsonl", ".usage-local.jsonl"):
+        _os.mkfifo(docs / name)
+
+    def _write():
+        m._gate_event(root, "delguard", "ok", "x", hard=False)
+        m._append_governance_log(vault, [{"gate": "doctor-run", "kind": "ran", "hard": False, "nodes": []}])
+        m._usage_log(m.Env(vault), "Systems/甲.md", "show")
+    th = _th.Thread(target=_write, daemon=True)
+    th.start()
+    th.join(10)
+    check("①本機帳是管線:三支寫入器都不卡住", not th.is_alive(), "")
+    for name in (".governance-local.jsonl", ".usage-local.jsonl"):
+        (docs / name).unlink()
+    gi = docs / ".gitignore"
+    gi.unlink(missing_ok=True)
+    gi.write_text("x\n", encoding="utf-8")
+    orig = m._vault_write_lock
+    m._vault_write_lock = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("不該拿鎖"))
+    try:
+        got = m._ensure_docs_gitignore(docs)
+    finally:
+        m._vault_write_lock = orig
+    check("②不拿鎖也照補", len(got) == 2 and ".usage-local.jsonl" in gi.read_text(encoding="utf-8"), str(got))
+    gi.unlink()
+    outside = Path(tempfile.mkdtemp(prefix="gctl-govsplit-out3-"))
+    (outside / "g").write_text("x\n", encoding="utf-8")
+    gi.symlink_to(outside / "g")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        got = m._ensure_docs_gitignore(docs)
+    out = buf.getvalue()
+    check("②是捷徑:不動,但印出原因與要手動加的兩行", got == [] and "捷徑" in out and ".governance-local.jsonl" in out
+          and ".usage-local.jsonl" in out, out)
+    now = _dt.datetime(2026, 10, 2, 12, 0, tzinfo=_dt.timezone.utc)
+    v = mkvault()
+    write(v, "Systems/M.md", "type: system\nstatus: doing\nsummary: |-\n"
+          "  RULE:甲 [依據:人] [since:2026-06-01] [retire:度量 check-s.warned == 0 近4週]\n", body="# M\n")
+    (v.parent / ".governance-log.jsonl").write_text(
+        _j.dumps({"ts": "2026-06-20T00:00:00+00:00", "gate": "code-loop", "kind": "passed"}) + "\n", encoding="utf-8")
+    gll = v.parent / ".governance-local.jsonl"
+    ev = lambda ts: _j.dumps({"ts": ts, "gate": "doctor-run", "kind": "ran", "hard": False}) + "\n"
+    gll.write_text(ev("1970-01-01T00:00:00+00:00") + ev("2026-09-30T00:00:00+00:00"), encoding="utf-8")
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("③帳首一筆 1970、其餘是近期:仍在暖機、不判", got == [], str(got))
+    gll.write_text(ev("2099-01-01T00:00:00+00:00") + ev("2026-08-01T00:00:00+00:00") + ev("2026-08-02T00:00:00+00:00"),
+                   encoding="utf-8")
+    got = m._doctor_metric_lines(m.Env(v), v.parent, now=now)
+    check("③帳首一筆 2099、後面兩筆夠舊:照判(不被未來時間卡死)", len(got) == 1 and "甲" in got[0], str(got))
+    d = Path(tempfile.mkdtemp(prefix="gctl-govsplit-r3-"))
+    (d / "dir.jsonl").mkdir()
+    try:
+        m._gov_tail_bytes(d / "dir.jsonl")
+        raised = False
+    except OSError:
+        raised = True
+    check("④讀檔尾遇到資料夾丟錯,不回空", raised, "")
+    print("  ✓ t_gov_split_review_r3_fixes")
+
+
+def t_gov_split_review2_r1_fixes():
+    """治理帳例行紀錄分流代碼審 code-gov-ledger-split-2 r1 折入:①開本機帳時就擋管線與捷徑(不先檢查再開);
+    ②新建 .gitignore 寫入失敗不往外丟、印出手動加的提示;③硬連結的 .gitignore 已有兩行就安靜放過。"""
+    import contextlib
+    import io
+    import os as _os
+    import threading as _th
+    m = _load_lumos()
+    d = Path(tempfile.mkdtemp(prefix="gctl-govsplit2-"))
+    fifo = d / "l.jsonl"
+    _os.mkfifo(fifo)
+    res = {}
+    th = _th.Thread(target=lambda: res.setdefault("ok", m._local_ledger_append(fifo, "x\n")), daemon=True)
+    th.start()
+    th.join(10)
+    check("①管線:寫本機帳直接回 False,不卡住", not th.is_alive() and res.get("ok") is False, str(res))
+    (d / "t.txt").write_text("原樣\n", encoding="utf-8")
+    (d / "s.jsonl").symlink_to(d / "t.txt")
+    check("①捷徑:寫本機帳回 False,指的檔不動", m._local_ledger_append(d / "s.jsonl", "x\n") is False
+          and (d / "t.txt").read_text(encoding="utf-8") == "原樣\n", "")
+    check("①一般檔(不存在就建):寫得進去", m._local_ledger_append(d / "new.jsonl", "x\n") is True
+          and (d / "new.jsonl").read_text(encoding="utf-8") == "x\n", "")
+    g = Path(tempfile.mkdtemp(prefix="gctl-govsplit2-gi-"))
+    real_fdopen = _os.fdopen
+
+    class _Boom:
+        def __init__(self, fd):
+            self.fd = fd
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            _os.close(self.fd)
+
+        def write(self, _b):
+            raise OSError(28, "No space left on device")
+
+    _os.fdopen = lambda fd, mode="r", *a, **k: _Boom(fd) if mode == "wb" else real_fdopen(fd, mode, *a, **k)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            got = m._ensure_docs_gitignore(g)
+        raised = None
+    except OSError as e:
+        got, raised = None, e
+    finally:
+        _os.fdopen = real_fdopen
+    check("②新建寫入失敗:不往外丟、回空、印出手動加的提示", raised is None and got == [] and "寫不進去" in buf.getvalue(),
+          f"{raised!r} {buf.getvalue()[:200]}")
+    h = Path(tempfile.mkdtemp(prefix="gctl-govsplit2-hl-"))
+    shared = h / "shared"
+    shared.write_text(".governance-local.jsonl\n.usage-local.jsonl\n", encoding="utf-8")
+    (h / "docs").mkdir()
+    _os.link(shared, h / "docs" / ".gitignore")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        got = m._ensure_docs_gitignore(h / "docs")
+    check("③硬連結已經有兩行:安靜放過、不警告", got == [] and buf.getvalue() == "", buf.getvalue())
+    print("  ✓ t_gov_split_review2_r1_fixes")
+
+
+def t_gov_split_review2_r2_fixes():
+    """治理帳例行紀錄分流代碼審 code-gov-ledger-split-2 r2 折入:①唯讀但已齊全的 .gitignore 安靜放過;
+    ②追加短寫(磁碟滿)不算補上;③寫本機帳短寫回 False。"""
+    import contextlib
+    import io
+    import os as _os
+    m = _load_lumos()
+    g = Path(tempfile.mkdtemp(prefix="gctl-govsplit2r2-"))
+    gi = g / ".gitignore"
+    gi.write_text("x\n.governance-local.jsonl\n.usage-local.jsonl\n", encoding="utf-8")
+    _os.chmod(gi, 0o444)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        got = m._ensure_docs_gitignore(g)
+    check("①唯讀但已齊全:安靜放過", got == [] and buf.getvalue() == "", buf.getvalue())
+    _os.chmod(gi, 0o644)
+    gi.write_text("x\n", encoding="utf-8")
+    real_write = _os.write
+    _os.write = lambda fd, data: real_write(fd, data[:max(1, len(data) - 3)])
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            got = m._ensure_docs_gitignore(g)
+        ok = m._local_ledger_append(g / "l.jsonl", "0123456789\n")
+    finally:
+        _os.write = real_write
+    check("②追加短寫:不算補上、印出提示", got == [] and "沒寫完整" in buf.getvalue(), buf.getvalue())
+    check("③寫本機帳短寫:回 False", ok is False, str(ok))
+    print("  ✓ t_gov_split_review2_r2_fixes")
 
 
 def _stats_known_gates():
@@ -16288,6 +16862,49 @@ def t_hook_inner_timeout_always_below_outer():
 
 
 
+def t_lens_tests_avoid_branch_dependent_range():
+    """[鏡頭測試範圍固定 S2] 對真實 repo 呼叫 dispatch-lens 的測試,不准用「…..HEAD」當範圍——那段範圍就是當下分支的改動,
+    改到讓鏡頭算很久的東西時測試就逾時(2026-10-06 合併請求 #14:改一篇計劃筆記,鏡頭 3 分 14 秒,兩支認領測試卡過 180 秒)。
+    改用 _lens_smallest_commit 挑主線上改動最小的那一個提交。翻紅釘:任一支改回 f"{ml}..HEAD" → 紅並列出函式名。"""
+    print("t_lens_tests_avoid_branch_dependent_range")
+    import re as _re
+    src = Path(__file__).read_text(encoding="utf-8")
+    funcs = _re.split(r"(?m)^(?=def )", src)
+    bad, seen = [], []
+    for f in funcs:
+        m = _re.match(r"def (t_\w+)\(", f)
+        if not m or m.group(1) == "t_lens_tests_avoid_branch_dependent_range":
+            continue
+        if '"dispatch-lens"' not in f or "Path(GRAPHCTL).resolve().parent.parent" not in f:
+            continue      # 沒呼叫鏡頭、或用的是臨時造的 repo:範圍成本固定,不在此限
+        seen.append(m.group(1))
+        if _re.search(r"""\.\.HEAD["']""", f):
+            bad.append(m.group(1))
+    # ★前置★ 現場成立:篩選字串日後改名、一支都篩不到時,下面那條會恆綠
+    check("★前置★ 掃到那兩支對真實 repo 跑鏡頭的認領測試",
+          {"t_codex_s1_lens_arm_claim", "t_codex_s1_r1_fixes"} <= set(seen), str(seen))
+    check("對真實 repo 跑鏡頭的測試沒有用「…..HEAD」當範圍", not bad, str(bad))
+
+
+def _lens_smallest_commit(repo, ref, depth=30):
+    """ref 最近 depth 個非合併、而且有父提交的提交裡,改動行數最少的那個(同分取較新的);沒有回 ""。
+    二進位檔的增減在 numstat 是「-」,當 0 算。"""
+    import subprocess as _sp
+    r = _sp.run(["git", "-C", str(repo), "log", "--no-merges", f"-n{depth}", "--numstat",
+                 "--format=@%H %P", ref], capture_output=True, text=True)
+    best, best_n, cur, n = "", None, "", 0
+    for line in r.stdout.splitlines() + ["@"]:
+        if line.startswith("@"):
+            if cur and (best_n is None or n < best_n):
+                best, best_n = cur, n
+            parts = line[1:].split()
+            cur, n = (parts[0] if len(parts) >= 2 else ""), 0
+        elif line.strip():
+            added, deleted = (line.split("\t") + ["", ""])[:2]
+            n += sum(int(x) for x in (added, deleted) if x.isdigit())
+    return best
+
+
 def t_lens_timeout_keeps_warming_cache():
     """★鏡頭超時不殺子行程,讓它跑完把快取寫好——而且這段邏輯住在 lumos 不住 hook★
     (2026-09-07 全 repo 審視 #14;代碼審 r1 架構席把它從 hook 搬進 lumos)。
@@ -16311,8 +16928,9 @@ def t_lens_timeout_keeps_warming_cache():
         raise _SrcOnly("不在 git 專案裡(非來源 repo),這段沒驗到")
 
     def sha(ref):
-        r = _sp.run(["git", "-C", str(repo), "rev-parse", ref], capture_output=True, text=True)
-        return r.stdout.strip()
+        r = _sp.run(["git", "-C", str(repo), "rev-parse", "--verify", ref + "^{commit}"],
+                    capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
 
     # ★怎麼讓它一定超時,又不必挑一個「算很久」的範圍★(2026-09-07 CI 紅了一次之後改)
     # 舊寫法是「挑 HEAD~12 這種算不完 1.5 秒的範圍」。問題是**那個範圍的成本會隨著
@@ -16334,8 +16952,12 @@ def t_lens_timeout_keeps_warming_cache():
             break
     if ml is None:
         raise _SrcOnly("這個 clone 找不到主線分支(main/master),測不到這條路")
-    base = sha(ml + "~1")
-    head = sha(ml)
+    # ★不能直接拿主線 tip 與 tip~1★(2026-10-04 CI 假紅):PR 用一般合併併進去時 tip 是合併提交,
+    # tip~1 是合併前的主線,兩端之間隔著整個 PR(那次 6279 行),背景算不完 60 秒的等待就判紅
+    # ——又回到「拿範圍大小當開關」。改成在主線最近 30 個非合併提交裡挑改動最小的那個 X,
+    # 範圍取 X~1..X:兩端都是主線 tip 的祖先(鏡頭只問祖先關係),範圍又一定只有一個提交。
+    head = _lens_smallest_commit(repo, ml)
+    base = sha(head + "~1") if head else ""
     if not base or not head:
         raise _SrcOnly("這個 repo 的歷史不夠長,測不到超時那條路")
     # ★快取位置要跟 lumos 算得一模一樣★(2026-09-14 推送前全套測試假紅):本機有這個分支的
@@ -16951,6 +17573,205 @@ def t_prepush_range_scan():
         r = run_pp(d, f"refs/tags/v1 {head} refs/tags/v1 {zero}\n")
         check("prepush tag high → advisory 放行(非硬擋)", r.returncode == 0 and "advisory" in r.stderr, f"rc={r.returncode}\n{r.stderr[-200:]}")
 
+
+
+# ── 新分支首推會擋的閘改用真起點(Projects/新分支首推會擋的閘改用真起點_計劃)────────────────────────
+_FP_HIGH = "import requests\ndef f():\n    requests.post('http://x')\n"
+
+
+def _fp_repo(lumos_wrapper=None):
+    """有遠端(bare)的測試 repo:main 上有一支高風險寫法的 app.py,已推上遠端 → (工作目錄, git 函式)。
+    scripts/lumos 預設指向真的 lumos;lumos_wrapper 給字串就寫成那支包裝腳本(測 push-range 失敗、被殺)。"""
+    import subprocess as _sp
+    d = Path(tempfile.mkdtemp(prefix="gctl-fp-"))
+    bare = Path(tempfile.mkdtemp(prefix="gctl-fp-bare-"))
+    _sp.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], capture_output=True)
+
+    def g(*a):
+        return _sp.run(["git", "-C", str(d), *a], capture_output=True, text=True)
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "t@t.t")
+    g("config", "user.name", "t")
+    (d / "app.py").write_text(_FP_HIGH)
+    g("add", ".")
+    g("commit", "-qm", "high on main")
+    g("remote", "add", "origin", str(bare))
+    g("push", "-q", "--no-verify", "origin", "main")
+    g("fetch", "-q", "origin")
+    g("remote", "set-head", "origin", "main")
+    sd = d / "scripts"
+    sd.mkdir(exist_ok=True)
+    real = str(Path(GRAPHCTL).resolve())
+    if lumos_wrapper is None:
+        (sd / "lumos").symlink_to(real)
+    else:
+        (sd / "lumos").write_text(lumos_wrapper.replace("@REAL@", real), encoding="utf-8")
+        (sd / "lumos").chmod(0o755)
+    (d / ".git" / "info" / "exclude").write_text("scripts/\n")
+    return d, g
+
+
+def _fp_hook(d, stdin):
+    import subprocess as _sp, os as _os
+    hook = str(Path(GRAPHCTL).resolve().parent / "hooks" / "pre-push")
+    env = dict(_os.environ)
+    env["GIT_DIR"] = str(d / ".git")
+    env.pop("LUMOS_SKIP_DRIFT_CHECK", None)
+    r = _sp.run(["bash", hook, "origin", "x"], cwd=str(d), input=stdin, capture_output=True, text=True, env=env)
+    return r.returncode, r.stdout + r.stderr
+
+
+def t_prepush_new_branch_block_range():
+    """[新分支首推 S1 到 S6] 推分支的新分支首推(遠端舊值全零)改用 lumos push-range 算的起點:主線上的舊高風險寫法不算這次的;
+    分支自己的高風險照擋;合過主線只算分支自己的;頂端已在主線放行;一般增量、舊值找不到、推標籤照舊;push-range 失敗退回空樹並講一句,
+    被訊號殺掉停下。翻紅釘:掛鉤不呼叫 push-range(照舊空樹)→ ①③④紅;退回不講 → ⑥紅;不走 pp_stop_if_signaled → ⑦紅。"""
+    print("t_prepush_new_branch_block_range")
+    zero = "0" * 40
+    # ①只多一個乾淨提交的新分支:主線那支高風險檔不算 → 放行
+    d, g = _fp_repo()
+    g("checkout", "-qb", "feat")
+    (d / "notes.md").write_text("docs only\n")
+    g("add", "notes.md")
+    g("commit", "-qm", "docs")
+    tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out = _fp_hook(d, f"refs/heads/feat {tip} refs/heads/feat {zero}\n")
+    check("①新分支首推、只多一個乾淨提交:放行(主線上的高風險寫法不算這次的)", rc == 0, out[-800:])
+    # ②分支自己的提交帶高風險寫法 → 照擋
+    (d / "svc.py").write_text(_FP_HIGH)
+    g("add", "svc.py")
+    g("commit", "-qm", "high on feat")
+    tip2 = g("rev-parse", "HEAD").stdout.strip()
+    rc, out = _fp_hook(d, f"refs/heads/feat {tip2} refs/heads/feat {zero}\n")
+    check("②分支自己帶高風險寫法:照擋", rc == 1, out[-800:])
+    # ③合過主線(主線在分岔後又多了高風險提交)再首推:只算分支自己的乾淨提交 → 放行
+    d, g = _fp_repo()
+    g("checkout", "-qb", "feat")
+    (d / "notes.md").write_text("docs only\n")
+    g("add", "notes.md")
+    g("commit", "-qm", "docs")
+    g("checkout", "-q", "main")
+    (d / "more.py").write_text(_FP_HIGH)
+    g("add", "more.py")
+    g("commit", "-qm", "more high on main")
+    g("push", "-q", "--no-verify", "origin", "main")
+    g("fetch", "-q", "origin")
+    g("checkout", "-q", "feat")
+    g("merge", "-q", "--no-edit", "main")
+    tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out = _fp_hook(d, f"refs/heads/feat {tip} refs/heads/feat {zero}\n")
+    check("③合過主線再首推:只算分支自己的、放行", rc == 0, out[-800:])
+    # ④頂端已整段在主線上(把 main 推到新名字):放行
+    d, g = _fp_repo()
+    tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out = _fp_hook(d, f"refs/heads/copy {tip} refs/heads/copy {zero}\n")
+    check("④頂端已在主線:放行", rc == 0, out[-800:])
+    # ⑤遠端舊值本機找不到、推標籤:照舊從空樹算(主線那支高風險檔照算 → 分支擋、標籤只提醒)
+    rc, out = _fp_hook(d, f"refs/heads/copy {tip} refs/heads/copy {'1' * 40}\n")
+    check("⑤遠端舊值本機找不到:照舊空樹,擋", rc == 1, out[-600:])
+    rc, out = _fp_hook(d, f"refs/tags/v1 {tip} refs/tags/v1 {zero}\n")
+    check("⑤推標籤:照舊空樹,只提醒放行", rc == 0 and "advisory" in out, out[-600:])
+    # ⑥push-range 不存在或失敗:退回空樹(同改之前)並講一句
+    wrap = ("#!/usr/bin/env python3\nimport sys, subprocess, os, signal\n"
+            "if len(sys.argv) > 1 and sys.argv[1] == 'push-range':\n"
+            "    if os.environ.get('FP_SIG'):\n        os.kill(os.getpid(), signal.SIGTERM)\n"
+            "    print('擋下:沒有「push-range」這個指令。', file=sys.stderr); sys.exit(2)\n"
+            "sys.exit(subprocess.run([sys.executable, '@REAL@', *sys.argv[1:]]).returncode)\n")
+    d, g = _fp_repo(lumos_wrapper=wrap)
+    g("checkout", "-qb", "feat")
+    (d / "notes.md").write_text("docs only\n")
+    g("add", "notes.md")
+    g("commit", "-qm", "docs")
+    tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out = _fp_hook(d, f"refs/heads/feat {tip} refs/heads/feat {zero}\n")
+    check("⑥push-range 失敗:退回空樹(主線高風險照算 → 擋)、講一句、不印它的錯誤文字",
+          rc == 1 and "新分支首推的起點沒算出來,照舊從空樹比" in out and "沒有「push-range」這個指令" not in out, out[-800:])
+    # ⑦push-range 被訊號殺掉:停下
+    import os as _os
+    _os.environ["FP_SIG"] = "1"
+    try:
+        rc, out = _fp_hook(d, f"refs/heads/feat {tip} refs/heads/feat {zero}\n")
+    finally:
+        _os.environ.pop("FP_SIG", None)
+    check("⑦push-range 被訊號殺掉:停下、回那個回傳碼", rc >= 128 and "被中斷" in out, f"rc={rc} {out[-400:]}")
+    print("  ✓ t_prepush_new_branch_block_range")
+
+
+def t_push_range_cli():
+    """[新分支首推 S7] lumos push-range:頂端已在主線 → 頂端..頂端;找得到分岔點 → 分岔點..頂端;判不了 → 這個 repo 的空樹..頂端;
+    SHA-256 repo 找不到主線 → SHA-256 空樹;少帶 --push-remote 或 --pushed-ref → rc2。
+    翻紅釘:判不了照印 _PUSH_START_UNKNOWN → ③紅;空樹寫死 SHA-1 → ④紅。"""
+    print("t_push_range_cli")
+    import subprocess as _sp, io, contextlib
+    zero = "0" * 40
+
+    def pr(repo, *a):
+        r = _sp.run([sys.executable, GRAPHCTL, "push-range", *a, "--repo", str(repo)], capture_output=True, text=True)
+        return r.returncode, r.stdout.strip(), r.stderr
+    d, g = _fp_repo()
+    main_tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out, err = pr(d, "--diff", f"{zero}..{main_tip}", "--push-remote", "origin", "--pushed-ref", "refs/heads/copy")
+    check("①頂端已在主線:印 頂端..頂端", rc == 0 and out == f"{main_tip}..{main_tip}", (rc, out, err[-200:]))
+    g("checkout", "-qb", "feat")
+    (d / "notes.md").write_text("x\n")
+    g("add", "notes.md")
+    g("commit", "-qm", "c")
+    tip = g("rev-parse", "HEAD").stdout.strip()
+    rc, out, err = pr(d, "--diff", f"{zero}..{tip}", "--push-remote", "origin", "--pushed-ref", "refs/heads/feat")
+    check("②找得到分岔點:印 分岔點..頂端", rc == 0 and out == f"{main_tip}..{tip}", (rc, out, err[-200:]))
+    m = _load_lumos_inproc()
+    orig = m._push_range_start
+    m._push_range_start = lambda *a, **k: (m._PUSH_START_UNKNOWN, "測試:git 失敗")
+    buf, ebuf = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(ebuf):
+            rc = m.cmd_push_range(str(d), f"{zero}..{tip}", "origin", "refs/heads/feat")
+    finally:
+        m._push_range_start = orig
+    empty = g("hash-object", "-t", "tree", "/dev/null").stdout.strip()
+    check("③判不了:印 這個 repo 的空樹..頂端", rc == 0 and buf.getvalue().strip() == f"{empty}..{tip}", (rc, buf.getvalue(), ebuf.getvalue()))
+    s2 = Path(tempfile.mkdtemp(prefix="gctl-fp-sha256-"))
+
+    def g2(*a):
+        return _sp.run(["git", "-C", str(s2), *a], capture_output=True, text=True)
+    if g2("init", "-q", "--object-format=sha256", "-b", "main").returncode == 0:
+        g2("config", "user.email", "t@t.t")
+        g2("config", "user.name", "t")
+        (s2 / "a.md").write_text("x\n")
+        g2("add", ".")
+        g2("commit", "-qm", "c")
+        t2 = g2("rev-parse", "HEAD").stdout.strip()
+        e2 = g2("hash-object", "-t", "tree", "/dev/null").stdout.strip()
+        rc, out, err = pr(s2, "--diff", f"{'0' * 64}..{t2}", "--push-remote", "origin", "--pushed-ref", "refs/heads/main")
+        check("④SHA-256 repo 找不到主線:印 SHA-256 空樹..頂端", rc == 0 and out == f"{e2}..{t2}" and len(e2) == 64,
+              (rc, out, err[-200:]))
+    else:
+        print("  (這台 git 不支援 SHA-256,④略過)")
+    rc, out, err = pr(d, "--diff", f"{zero}..{tip}", "--pushed-ref", "refs/heads/feat")
+    check("⑤少帶 --push-remote:rc2", rc == 2, (rc, err[-200:]))
+    rc, out, err = pr(d, "--diff", f"{zero}..{tip}", "--push-remote", "origin")
+    check("⑤少帶 --pushed-ref:rc2", rc == 2, (rc, err[-200:]))
+    print("  ✓ t_push_range_cli")
+
+
+def t_prepush_block_range_callers():
+    """[新分支首推 S8] 掛鉤裡會擋或決定擋不擋的那幾處都吃 _brange(或 pp_block_range_for):pp_touched_file、impact_once、
+    分支路徑兩次 pitfalls、spec-gate --push-check、code-loop check、兩處 loop escape。翻紅釘:任一處改回 $_range → 點名那一處紅。"""
+    print("t_prepush_block_range_callers")
+    import re as _re
+    txt = (Path(GRAPHCTL).resolve().parent / "hooks" / "pre-push").read_text(encoding="utf-8")
+    body = txt[txt.index("pp_touched_file() {"):]
+    body = body[:body.index("\n}\n")]
+    check("pp_touched_file 呼叫 pp_block_range_for", "pp_block_range_for" in body, body[:400])
+    want = {"impact_once": r'impact_once "\$_brange"',
+            "pitfalls --json": r'pitfalls --diff "\$_brange" --no-lint --json',
+            "pitfalls 高風險列命中": r'echo "命中的地方列在下面:"\n\s+"\$PY" "\$GRAPHCTL" pitfalls --diff "\$_brange"',
+            "spec-gate --push-check": r'spec-gate --push-check "\$_brange"',
+            "code-loop check": r'code-loop check --diff "\$_brange"'}
+    for name, pat in want.items():
+        check(f"{name} 吃 _brange", _re.search(pat, txt) is not None, name)
+    check("兩處 loop escape 都吃 _brange", len(_re.findall(r'--range "\$_brange"', txt)) == 2
+          and '--range "$_range"' not in txt, str(_re.findall(r'--range "\$_\w+"', txt)))
+    print("  ✓ t_prepush_block_range_callers")
 
 
 def t_prepush_cheap_gates_run_before_expensive_suite():
@@ -22515,6 +23336,340 @@ def t_impact_ranked():
     shutil.rmtree(root, ignore_errors=True)
 
 
+def t_impact_diff_review_artifacts():
+    """歷史審查附件不當程式種子；混合差異仍保留真程式、已刪檔與相鄰目錄。"""
+    import json, shutil
+    root = _nh_repo()
+    try:
+        _nh_file(root, 'src/current.py')
+        _nh_file(root, 'src/deleted.py', 'legacy_deleted = 17\n')
+        _nh_node(root, 'Current', about=['src/current.py'], body='實作在 `src/current.py`。')
+        _nh_node(root, 'Deleted', about=['src/deleted.py'], body='實作在 `src/deleted.py`。')
+        _nh_node(root, 'Historical', typ='issue', folder='Issues', resp=None,
+                 extra='pitfall_when:\n  - content:ARCHIVED_ONLY', body='歷史片段的事故。')
+        _nh_node(root, 'Actual', typ='issue', folder='Issues', resp=None,
+                 extra='pitfall_when:\n  - content:REAL_TOUCH', body='實際程式的事故。')
+        _nh_commit(root, 'base')
+        _nh_file(root, 'governance/review-reports/case/snapshot.patch', '+ARCHIVED_ONLY\n')
+        _nh_file(root, 'governance/review-reports/case/派工.txt', 'ARCHIVED_ONLY\n')
+        _nh_file(root, 'governance/replay/case/verdict.patch', '+ARCHIVED_ONLY\n')
+        _nh_file(root, 'governance/code-loop/case/example.diff', '+ARCHIVED_ONLY = True\n')
+        _nh_file(root, 'governance/review-reports/case/report', 'ARCHIVED_ONLY\n')
+        _nh_commit(root, 'artifacts')
+        _nh_file(root, 'governance/review-reports/case/report', '#!/bin/sh\necho working-only\n')
+        def impact(span):
+            r = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', span,
+                                '--repo', str(root), '--json'], capture_output=True, text=True)
+            check('附件測試的 impact 指令成功', r.returncode == 0, r.stderr)
+            return json.loads(r.stdout)
+        archive = impact('HEAD~1..HEAD')
+        check('只有審查附件時種子為空', archive['files'] == [], str(archive['files']))
+        check('歷史片段不能觸發事故', not archive['results'], str(archive['results'])[:300])
+        _nh_file(root, 'governance/review-reports/case/report', 'ARCHIVED_ONLY\n')
+        _nh_file(root, 'src/current.py', 'REAL_TOUCH = True\n')
+        _nh_git(root, 'rm', '-q', 'src/deleted.py')
+        _nh_file(root, 'governance/review-reports-other/worker.py', 'adjacent_worker = 29\n')
+        _nh_commit(root, 'mixed')
+        mixed = impact('HEAD~2..HEAD')
+        check('混合差異僅保留真程式與相鄰目錄', set(mixed['files']) ==
+              {'src/current.py', 'src/deleted.py', 'governance/review-reports-other/worker.py'},
+              str(mixed['files']))
+        pinned = {x['node'] for x in mixed['results'] if x.get('pinned')}
+        check('真程式的家仍必推', 'Systems/Current.md' in pinned, str(pinned))
+        check('已刪程式的家仍必推', 'Systems/Deleted.md' in pinned, str(pinned))
+        check('真程式事故仍必推', 'Issues/Actual.md' in pinned, str(pinned))
+        check('混合差異排除歷史事故', 'Issues/Historical.md' not in pinned, str(pinned))
+        tracked = _nh_git(root, 'ls-files', 'governance/review-reports').stdout.splitlines()
+        check('審查附件仍留在版本紀錄', len(tracked) == 3, str(tracked))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+
+def t_impact_diff_special_paths():
+    """真 Git 特殊檔名不能被引號化成假種子；家與事故仍可查到。"""
+    import json, shutil
+    root = _nh_repo()
+    paths = ['governance/review-reports/case/run\nscript.py',
+             'governance/review-reports/case/tab\ttool.py',
+             'governance/review-reports/case/dir\nname/tool.py']
+    try:
+        _nh_file(root, 'src/anchor.py')
+        for i, path in enumerate(paths):
+            # 換行 basename 的既有確認格式不成立；只驗精確 seed／事故，不擴全域 parser。
+            body_ref = 'tool.py' if i == 2 else path
+            note = _nh_node(root, 'Special' + str(i), about=[path] if i == 1 else (),
+                            body='實作在 `' + body_ref + '`。')
+            if i == 2:
+                # 既有 literal block 能無損登記換行目錄；唯一裸檔名提供獨立確認。
+                text = note.read_text()
+                literal = 'about_code: |-\n' + ''.join('  ' + line + '\n' for line in path.split('\n'))
+                note.write_text(text.replace('about_code: []\n', literal))
+        _nh_node(root, 'SpecialIncident', typ='issue', folder='Issues', resp=None,
+                 extra='pitfall_when:\n  - content:SPECIAL_REAL_TOUCH', body='真正修改的事故。')
+        _nh_commit(root, 'base')
+        for path in paths:
+            _nh_file(root, path, 'SPECIAL_REAL_TOUCH = 1\n')
+        _nh_file(root, 'governance/review-reports/case/report.patch', 'archive\n')
+        _nh_node(root, 'Changed\tNode', about=[paths[1]], body='實作在 `' + paths[1] + '`。')
+        _nh_commit(root, 'changed')
+        for i in (1, 2):
+            single = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--file', paths[i],
+                                     '--repo', str(root), '--ranked', '--json'], capture_output=True, text=True)
+            one = json.loads(single.stdout) if single.returncode == 0 else {}
+            check('特殊路徑有效家前置' + str(i), single.returncode == 0 and any(
+                x['node'] == 'Systems/Special' + str(i) + '.md' and x.get('pinned')
+                for x in one.get('results', [])), single.stderr + str(one))
+        r = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', 'HEAD~1..HEAD',
+                            '--repo', str(root), '--json'], capture_output=True, text=True)
+        check('特殊路徑真 CLI 成功', r.returncode == 0, r.stderr)
+        data = json.loads(r.stdout)
+        check('特殊程式種子保留精確路徑且普通附件排除', set(data['files']) == set(paths), str(data['files']))
+        pins = {x['node'] for x in data['results'] if x.get('pinned')}
+        check('特殊路徑的家仍必推', {'Systems/Special1.md', 'Systems/Special2.md'} <= pins, str(pins))
+        check('特殊路徑的事故仍必推', 'Issues/SpecialIncident.md' in pins, str(pins))
+        sync_run = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', 'HEAD~1..HEAD',
+                                  '--repo', str(root), '--sync-check', '--json'], capture_output=True, text=True)
+        sync_data = json.loads(sync_run.stdout) if sync_run.returncode == 0 else {}
+        check('特殊路徑同步核對成功並保留精確節點', sync_run.returncode == 0
+              and 'Systems/Changed\tNode.md' in sync_data.get('sync', {}).get('touched_nodes', []),
+              sync_run.stderr + str(sync_data.get('sync')))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def t_impact_diff_bookkeeping_boundary_rename():
+    """跨簿記邊界改名且去掉執行模式，舊程式刪除仍保留；一般改名不改語意。"""
+    import json, shutil
+    m = _load_lumos_inproc()
+    root = _nh_repo()
+    old, new = 'src/tool.py', 'governance/review-reports/case/report.txt'
+    try:
+        _nh_file(root, 'src/anchor.py')  # 不冒稱順便修復舊頂層目錄全部消失的既有 Issue。
+        _nh_file(root, old, 'RENAME_REAL_TOUCH = 1\n').chmod(0o755)
+        _nh_node(root, 'Renamed', about=[old], body='實作在 `' + old + '`。')
+        _nh_node(root, 'RenameIncident', typ='issue', folder='Issues', resp=None,
+                 extra='pitfall_when:\n  - content:RENAME_REAL_TOUCH', body='真正修改的事故。')
+        _nh_commit(root, 'base'); base = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+        (root / new).parent.mkdir(parents=True, exist_ok=True)
+        _nh_git(root, 'mv', old, new); (root / new).chmod(0o644)
+        _nh_commit(root, 'rename'); head = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+        detected = _nh_git(root, 'diff', '--name-status', '-M', base, head).stdout
+        check('改名控制確實被 Git 判成 R 且終點不可執行', detected.startswith('R')
+              and not ((root / new).stat().st_mode & 0o111), detected)
+        r = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', base + '..' + head,
+                            '--repo', str(root), '--json'], capture_output=True, text=True)
+        check('跨簿記改名真 CLI 成功', r.returncode == 0, r.stderr)
+        data = json.loads(r.stdout)
+        check('跨簿記改名保留舊程式種子而排除新附件', data['files'] == [old], str(data['files']))
+        pins = {x['node'] for x in data['results'] if x.get('pinned')}
+        check('跨簿記改名舊家與事故仍必推', {'Systems/Renamed.md', 'Issues/RenameIncident.md'} <= pins, str(pins))
+        files = dict(m._review_role_changed_files(root, base, head))
+        check('角色輸入保留被附件排除遮住的舊程式刪除', files.get(old) == base and new not in files, str(files))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def t_review_role_bookkeeping_rename_uncertainty():
+    """固定帳檔／未知首行終點都不能吞掉舊角色；已確認程式仍只算新側。"""
+    import shutil
+    m = _load_lumos_inproc()
+    for label, new, content, expected_old, expected_new in [
+            ('fixed', 'governance/anchor-baseline.json', 'x = 1\n', True, False),
+            ('unknown', 'governance/review-reports/case/report',
+             'x = 1\n#' + 'x' * m._CODELOOP_BOOKKEEPING_HEAD_CAP, True, True),
+            ('known-code', 'governance/review-reports/case/tool.py', 'x = 1\n', False, True)]:
+        root = _nh_repo(); old = 'src/tool.py'
+        try:
+            _nh_file(root, old, content); _nh_commit(root, 'base')
+            base = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+            (root / new).parent.mkdir(parents=True, exist_ok=True)
+            moved = _nh_git(root, 'mv', old, new)
+            check('改名控制前置移動成功 ' + label, moved.returncode == 0, moved.stderr)
+            _nh_commit(root, 'rename'); head = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+            status = _nh_git(root, 'diff', '--name-status', '-M', base, head).stdout
+            check('改名控制確實是 R100 ' + label, status.startswith('R100'), status)
+            selected = dict(m._review_role_changed_files(root, base, head))
+            check('簿記改名正確保留舊側 ' + label,
+                  (selected.get(old) == base) == expected_old, str(selected))
+            check('簿記改名正確處理新側 ' + label,
+                  (selected.get(new) == head) == expected_new, str(selected))
+            roles = m._review_roles(root, base, head, budget=30)
+            check('簿記改名後端角色仍只計一次 ' + label,
+                  roles is not None and roles['counts']['backend'] == 1, str(roles))
+            if label == 'unknown':
+                modes = m._impact_diff_modes(root, [old, new], base, head)
+                check('超限首行仍明確是未知而非確認腳本', modes[new][1] is None, str(modes))
+                expired = dict(m._review_role_changed_files(root, base, head, deadline=-1))
+                check('截止期耗盡也保留舊程式', expired.get(old) == base, str(expired))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def t_impact_diff_nonutf8_json():
+    """用真 Git index/blob 建非 UTF-8 路徑；機器輸出須可解碼並還原精確位元組。"""
+    import json, shutil, os
+    root = _nh_repo()
+    raw_path = b'governance/review-reports/case/nonutf8-\xff.py'
+    try:
+        _nh_file(root, 'src/anchor.py')
+        _nh_node(root, 'ByteIncident', typ='issue', folder='Issues', resp=None,
+                 extra='pitfall_when:\n  - content:BYTE_PATH_TOUCH', body='真正修改的事故。')
+        _nh_commit(root, 'base')
+        oid = subprocess.check_output(['git', '-C', str(root), 'hash-object', '-w', '--stdin'],
+                                      input=b'BYTE_PATH_TOUCH = 1\n').strip()
+        indexed = subprocess.run([b'git', b'-C', os.fsencode(root), b'update-index', b'--add',
+                                  b'--cacheinfo', b'100644,' + oid + b',' + raw_path], capture_output=True)
+        committed = _nh_git(root, 'commit', '-qm', 'byte-path', '--no-verify')
+        listed = subprocess.check_output(['git', '-C', str(root), 'diff', '--name-only', '-z', 'HEAD~1..HEAD'])
+        check('非 UTF8 路徑真 Git 前置成立', indexed.returncode == 0 and committed.returncode == 0
+              and raw_path + b'\0' in listed, repr(listed))
+        for strict in (False, True):
+            env = dict(os.environ)
+            if strict:
+                env['PYTHONIOENCODING'] = 'utf-8:strict'
+            run = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', 'HEAD~1..HEAD',
+                                  '--repo', str(root), '--json'], capture_output=True, env=env)
+            parsed, error = None, ''
+            try:
+                parsed = json.loads(run.stdout)
+            except (ValueError, UnicodeError) as exc:
+                error = str(exc)
+            check('非 UTF8 JSON 可讀 ' + str(strict), run.returncode == 0 and parsed is not None,
+                  run.stderr.decode('utf-8', 'replace') + error)
+            check('非 UTF8 JSON 路徑位元組可逆 ' + str(strict), parsed is not None
+                  and [os.fsencode(path) for path in parsed['files']] == [raw_path], repr(parsed))
+            check('非 UTF8 真事故仍命中 ' + str(strict), parsed is not None and any(
+                  item['node'] == 'Issues/ByteIncident.md' and item.get('pinned')
+                  for item in parsed['results']), repr(parsed))
+        human = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', 'HEAD~1..HEAD',
+                                '--repo', str(root)], capture_output=True,
+                               env=dict(os.environ, PYTHONIOENCODING='utf-8:strict'))
+        check('非 UTF8 人讀入口可安全呈現', human.returncode == 0,
+              human.stderr.decode('utf-8', 'replace'))
+        sync = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', 'HEAD~1..HEAD',
+                               '--repo', str(root), '--sync-only'], capture_output=True,
+                              env=dict(os.environ, PYTHONIOENCODING='utf-8:strict'))
+        check('非 UTF8 同步呈現入口可安全呈現', sync.returncode == 0,
+              sync.stderr.decode('utf-8', 'replace'))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def t_impact_diff_head_batch_total_cap():
+    """多支各自小於單檔上限的首行物件，也不能無限制讀進整批內容。"""
+    from unittest.mock import patch
+    m = _load_lumos(); cap = m._CODELOOP_BOOKKEEPING_HEAD_CAP
+    paths = ['governance/review-reports/case/plain' + str(i) for i in range(4)]
+    raw = b''.join((f':100644 100644 {"a" * 40} {str(i + 1) * 40} M\0' + path + '\0').encode()
+                   for i, path in enumerate(paths))
+    reads = []
+    def read(root, specs, timeout=60):
+        reads.append(list(specs)); return [b'ordinary\n'] * len(specs)
+    with patch.object(m, '_nodehome_git', lambda *a, **kw: raw), \
+            patch.object(m, '_nodehome_cat_sizes', lambda root, specs, timeout: [cap // 2] * len(specs)), \
+            patch.object(m, '_nodehome_cat_blobs', read):
+        modes = m._impact_diff_modes(Path('/tmp'), paths, 'base', 'head')
+        check('新分類讀取整批宣告大小不超過既有上限', sum(len(x) for x in reads) * (cap // 2) <= cap, str(reads))
+        check('超出整批上限的未知項仍保守保留', any(m._impact_diff_seed_ok(path, *modes[path]) for path in paths), str(modes))
+        reads.clear()
+        with patch.object(m, '_ROLE_READ_CAP', 2), \
+                patch.object(m, '_nodehome_cat_sizes', lambda root, specs, timeout: [1] * len(specs)):
+            modes = m._impact_diff_modes(Path('/tmp'), paths, 'base', 'head')
+        check('極小物件也受既有讀取數上限約束', sum(len(x) for x in reads) <= 2, str(reads))
+        check('超過讀取數上限也保守保留', any(m._impact_diff_seed_ok(path, *modes[path]) for path in paths), str(modes))
+        reads.clear()
+        old = m._nodehome_cat_blobs_capped(Path('/tmp'), ['x'] * 4, cap)
+        check('既有未指定整批上限的消費者語意保持', len(old) == 4 and len(reads[0]) == 4, str(reads))
+
+
+def t_review_role_bookkeeping_remaining_budget():
+    """新增簿記分類不能另開固定逾時；小幅正預算耗完須停止首行並明示超時。"""
+    import time as _t
+    from unittest.mock import patch
+    from types import SimpleNamespace
+    m = _load_lumos(); clock, raw_timeouts, heads = [10.0], [], []
+    path = 'governance/review-reports/case/plain'
+    raw = (f':100644 100644 {"a" * 40} {"b" * 40} M\0' + path + '\0').encode()
+    def git(*args, **kw):
+        if '--raw' in args:
+            raw_timeouts.append(kw.get('timeout', 20)); clock[0] += 0.2
+            return SimpleNamespace(returncode=0, stdout=raw)
+        return SimpleNamespace(returncode=0, stdout='M\0' + path + '\0')
+    def read_heads(*args, **kw):
+        heads.append(kw); return [b'ordinary\n']
+    with patch.object(_t, 'monotonic', lambda: clock[0]), \
+            patch.object(m, '_json_at_ref', lambda *a: {}), \
+            patch.object(m, '_vendored_skip', lambda *a: set()), \
+            patch.object(m, '_lens_git', git), \
+            patch.object(m, '_nodehome_cat_blobs_capped', read_heads):
+        res = m._review_roles(Path('/tmp'), 'base', 'head', budget=0.1)
+    check('簿記 raw 查詢承接剩餘角色預算', bool(raw_timeouts) and 0 < raw_timeouts[0] <= 0.100001, str(raw_timeouts))
+    check('分類預算耗盡不再讀首行', not heads, str(heads))
+    check('沒有內容候選也誠實回超時', isinstance(res, dict) and res['timed_out'], str(res))
+
+
+def t_impact_diff_bookkeeping_code_controls():
+    """簿記裡的程式仍是程式：副檔名、可執行、無副檔名、刪檔與凍結模式。"""
+    import json, shutil
+    lm = _load_lumos_inproc()
+    root = _nh_repo()
+    paths = ['governance/review-reports/case/tool.py',
+             'governance/code-loop/case/run.sh',
+             'governance/replay/case/run.txt',
+             'governance/note-verdicts/case/run',
+             'governance/reread-verdicts/case/program.patch',
+             'governance/review-reports/case/program.md',
+             'governance/code-loop/case/program.json',
+             'governance/replay/case/program.jsonl']
+    deleted = 'governance/replay/case/deleted.txt'
+    archive = 'governance/review-reports/case/report.patch'
+    try:
+        _nh_file(root, 'src/anchor.py', 'anchor = 1\n')
+        for i, path in enumerate(paths + [deleted]):
+            _nh_node(root, 'Code' + str(i), about=[path], body='實作在 `' + path + '`。')
+        _nh_file(root, deleted, '#!/bin/sh\necho deleted-program\n')
+        (root / deleted).chmod(0o755)
+        _nh_commit(root, 'base')
+        base = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+        for i, path in enumerate(paths):
+            _nh_file(root, path, 'value = 1\n' if path.endswith('.py') else '#!/bin/sh\necho code-' + str(i) + '\n')
+            if path.endswith(('.txt', '.patch', '.md', '.json', '.jsonl')):
+                (root / path).chmod(0o755)
+        _nh_file(root, archive, '+ARCHIVED_ONLY\n')
+        _nh_git(root, 'rm', '-q', deleted)
+        _nh_commit(root, 'code inside bookkeeping')
+        head = _nh_git(root, 'rev-parse', 'HEAD').stdout.strip()
+        check('文字副檔名的程式確實可執行', subprocess.run([str(root / paths[2])], capture_output=True).returncode == 0)
+        check('patch 副檔名的程式確實可執行', subprocess.run([str(root / paths[4])], capture_output=True).returncode == 0)
+        for path in paths[5:]:
+            check('文件副檔名也確實執行程式 ' + path, subprocess.run([str(root / path)], capture_output=True).returncode == 0)
+        def impact(span):
+            r = subprocess.run([sys.executable, GRAPHCTL, 'impact', '--diff', span,
+                                '--repo', str(root), '--json'], capture_output=True, text=True)
+            check('程式例外的 impact 真入口成功', r.returncode == 0, r.stderr)
+            return json.loads(r.stdout)
+        (root / archive).chmod(0o755)
+        data = impact(base + '..' + head)
+        check('凍結差異保留所有程式及已刪可執行檔', set(data['files']) == set(paths + [deleted]), str(data['files']))
+        pins = {x['node'] for x in data['results'] if x.get('pinned')}
+        for i in range(len(paths) + 1):
+            check('簿記內程式的家仍必推' + str(i), 'Systems/Code' + str(i) + '.md' in pins, str(pins))
+        check('工作目錄的 mode 不污染凍結附件判定', archive not in data['files'], str(data['files']))
+        roles = lm._review_role_changed_files(root, base, head)
+        check('角色清單保留簿記內程式', roles is not None and set(p for p, _ref in roles) == set(paths + [deleted]), str(roles))
+        check('角色清單的已刪檔仍讀起點', roles is not None and (deleted, base) in roles, str(roles))
+        (root / archive).chmod(0o644)
+        _nh_file(root, paths[2], '#!/bin/sh\necho changed-index-program\n')
+        (root / paths[2]).chmod(0o755)
+        _nh_git(root, 'add', paths[2])
+        (root / paths[2]).chmod(0o644)
+        staged = impact('staged')
+        check('staged 讀索引程式模式而非工作目錄', staged['files'] == [paths[2]], str(staged['files']))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def t_impact_diff():
     """impact --diff(code-loop 橋接):聚合整段 diff 的 ranked impact 成受影響功能面 manifest。"""
     import subprocess as sp, json, shutil
@@ -23690,7 +24845,7 @@ def t_doctor_cascade_reminder():
           and "1 張連鎖待辦單自建立後零筆判定" in r2.stdout, r2.stdout[-500:])
     check("E4: 損毀不炸 rc0", r2.returncode == 0, str(r2.returncode))
     # 例6:--ci 落 check-cascade 治理帳
-    gov = v.parent / ".governance-log.jsonl"
+    gov = v.parent / ".governance-local.jsonl"      # check-cascade/warned 是例行觀察,寫本機帳
     if gov.exists():
         gov.unlink()
     run(v, "doctor", "--ci")
@@ -24011,6 +25166,43 @@ def t_loop_next_disposal_cmd_actually_runs():
     rg = run(v, *g.split()[1:])
     check("★disposal_gate 模板跑得動且對剛記的帳給出判定(rc0/1 非 rc2)★", rg.returncode in (0, 1),
           f"rc={rg.returncode} {rg.stderr[:200]}")
+
+
+def t_loop_next_spec_uses_disposal_gate_for_new_loops():
+    """loop next 帶 --spec 時代問的閘:2026-08-25 之後開的新編號問處置閘,不走已退役的 panel 閘
+    (Issues/loop-next帶spec誤走退役panel閘:原本照 lumos-code-loop 手冊第 1 步帶 --spec 必被「panel 閘僅供舊迴圈回放」擋 rc2);
+    舊編號(退役日之前定錨)照舊走 panel 閘回放。"""
+    import json as _j
+    import os as _os
+    v = mkvault()
+    spec = v / "Projects" / "nxspec.md"
+    spec.write_text("nx spec\n規則甲:這是一段足夠長的內容當引句。\n", encoding="utf-8")
+    h = _sha256_of(spec)
+    rpt = v / "Projects" / "nxrpt.md"
+    rpt.write_text("severity: minor\n## F1 甲\nseverity: minor\n引句：「規則甲:這是一段足夠長的內容當引句。」\n", encoding="utf-8")
+    lid = f"nx-{_M1U}"
+    run(v, "canary", "record", "none", "--loop", lid, "--round", "r1", "--auditor", "正確性-s", "--severity", "minor",
+        "--findings", "1", "--findings-set", "F1", "--folded-set", "F1", "--refuted-set", "none",
+        "--report", str(rpt), "--snapshot", str(spec), "--spec", str(spec), "--reviewed", h,
+        "--tier", "standard", "--orchestrator", "claude", "--scope-lines", "10", expect_rc=0)
+    # 測試總檔開頭把退役日凍在 9999(所有編號都算舊迴圈),這個 bug 因此一直沒被全套抓到;新迴圈要自己把退役日拉到過去
+    env_new = dict(_os.environ, LUMOS_PANEL_RETIRE_CUTOFF="2000-01-01")
+    r = subprocess.run([sys.executable, GRAPHCTL, "--vault", str(v), "loop", "next", lid, "--spec", str(spec),
+                        "--repo", str(v.parent), "--json"], capture_output=True, text=True, env=env_new)
+    check("★新編號帶 --spec 不被退役的 panel 閘擋(rc0、沒有 panel 閘字樣)★",
+          r.returncode == 0 and "panel 閘" not in r.stderr, f"rc={r.returncode} {r.stderr[:300]} OUT={r.stdout[:300]}")
+    d = _j.loads(r.stdout) if r.returncode == 0 else {}
+    check("★處置閘判過 → phase=converged★", d.get("phase") == "converged", str(d)[:300])
+    rpt.write_text("severity: major\n## F1 甲\nseverity: major\n引句：「規則甲:這是一段足夠長的內容當引句。」\n", encoding="utf-8")
+    for _ in range(2):   # 報告改得比帳面高 → 處置閘會想記一筆席位異常;loop next 是唯讀指針,不准落檔
+        subprocess.run([sys.executable, GRAPHCTL, "--vault", str(v), "loop", "next", lid, "--spec", str(spec),
+                        "--repo", str(v.parent), "--json"], capture_output=True, text=True, env=env_new)
+    logs = list(Path(v.parent).rglob("roster-alerts.log"))
+    check("★loop next 代問處置閘是唯讀:跑兩次也不寫席位異常紀錄★", not logs, str(logs))
+    r2 = run(v, "loop", "next", lid, "--spec", str(spec), "--repo", str(v.parent), "--json")   # 總檔預設:舊迴圈
+    d2 = _j.loads(r2.stdout) if r2.stdout.strip().startswith("{") else {}
+    check("舊編號(退役日之前)照舊走 panel 閘回放:不拿處置閘當收斂依據", r2.returncode != 2
+          and d2.get("phase") != "converged", f"rc={r2.returncode} {str(d2)[:200]} {r2.stderr[:200]}")
 
 
 def t_disposal_loop_requires_provenance():
@@ -24373,11 +25565,20 @@ def t_disposal_gate_r1_panel_hardening():
     # ── ⑤ 非 UTF-8 報告:FAIL 但不得 traceback ──
     lid5 = f"h8e-{_M1U}"
     rptBin = d / "h8bin.md"
-    rptBin.write_bytes(b"severity: minor\n\xff\xfe\x00 binary junk \x80\x81")   # 首行合法宣告=過寫側;其餘 bytes 仍非 UTF-8,讀側行為不變
+    rptBin.write_text(rptA.read_text(encoding="utf-8"), encoding="utf-8")
     run(v, "canary", "record", "caught", "--loop", lid5, "--round", "r1", "--auditor", "s1",
         "--severity", "minor", "--findings-set", "F1", "--refuted-set", "none", "--folded-set", "F1",
         "--report", str(rptBin), "--snapshot", str(snap),
         "--spec", str(spec), "--reviewed", h, expect_rc=0)
+    valid = run(v, "loop", "status", lid5, "--disposal", "--spec", str(spec), "--repo", str(v.parent))
+    check("★前置★ UTF-8 壞帳注入前本輪讀側 rc0", valid.returncode == 0, valid.stdout[-300:] + valid.stderr[-200:])
+    # 現行寫側拒收非法編碼；歷史壞帳用既有 helper 構造，保留讀側編碼防線。
+    rptBin.write_bytes(b"severity: minor\n\xff\xfe\x00 binary junk \x80\x81")
+    _ledger_patch_last(ledger, lid5, report_path=rptBin)
+    bad_rows = [_j.loads(l) for l in ledger.read_text(encoding="utf-8").splitlines()
+                if l.strip() and _j.loads(l).get("loop") == lid5]
+    check("★前置★ 壞報告與帳面 hash 一致，讀側確實驗編碼", len(bad_rows) == 1
+          and bad_rows[0]["report_sha256"] == _sha256_of(rptBin), str(bad_rows)[-200:])
     r7 = run(v, "loop", "status", lid5, "--disposal", "--spec", str(spec), "--repo", str(v.parent))
     check("★非 UTF-8 報告:讀側 FAIL(rc1/2)且無 traceback★",
           r7.returncode in (1, 2) and "Traceback" not in r7.stderr,
@@ -24699,6 +25900,183 @@ def t_canary_record_carrier_must_be_fully_anchored():
         expect_rc=0)
     last = _j.loads((v.parent / ".canary-log.jsonl").read_text(encoding="utf-8").strip().splitlines()[-1])
     check("載體全錨/反面: 全錨席當載體照樣記得進去", last.get("findings_set") == ["a", "b"], str(last)[:200])
+
+
+def t_canary_carrier_zero_quote_rejected():
+    """載體零引句要在只進不出的 canary 帳寫入前拒收；空輪不帶處置集照舊。
+
+    現場：code-seat-input-validation r2 把 none 當 finding ID 寫進零發現帳，
+    寫側成功但處置閘因零引句失敗。不是增加放行標準，是把既有拒收往前移。
+    翻紅：原 CLI 在四種可讀快照案例皆成功追加，rc2 與帳不變兩項翻紅。
+    """
+    import json as _j
+    import os as _os
+    v = mkvault()
+    snap = v / "Projects" / "snapshot.patch"
+    snap.write_text("這是凍結材料裡可以核對的一整段文字\n", encoding="utf-8")
+    clean = v / "Projects" / "clean.md"
+    clean.write_text("severity: clean\n# 沒有問題\n本席沒有發現。\n", encoding="utf-8")
+    minor = v / "Projects" / "minor.md"
+    minor.write_text("severity: minor\n## F1\nseverity: minor\n報了一條但沒有引句。\n", encoding="utf-8")
+    ledger = v.parent / ".canary-log.jsonl"
+    # 先建成功前綴，逐位元比較證明失敗沒有追加；不是只看最後一行。
+    run(v, "canary", "record", "none", "--loop", f"code-zq-prefix-{_M1U}", "--auditor", "通才-codex",
+        "--severity", "clean", "--findings", "0", "--report", str(clean), "--snapshot", str(snap), expect_rc=0)
+    seed = _j.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
+    check("載體零引句前置：loop 審查席報告解析路徑成立", seed.get("reported") == 0, str(seed))
+    cases = (("none", clean, "clean", ["--findings", "0"]),
+             ("F1", clean, "clean", ["--findings", "0"]),
+             ("F1", minor, "minor", ["--findings", "1"]),
+             ("F1", minor, "minor", []))
+    for optimized in (False, True):
+        prefix = [sys.executable, *(["-O"] if optimized else []), GRAPHCTL,
+                  "--vault", str(v), "canary", "record", "none", "--round", "r1",
+                  "--auditor", "通才-codex", "--snapshot", str(snap)]
+        for index, (fid, report, severity, count_args) in enumerate(cases):
+            before = ledger.read_bytes()
+            r = subprocess.run([*prefix, "--loop", f"code-zq-{_M1U}-{optimized}-{index}",
+                                "--report", str(report), "--severity", severity,
+                                *count_args, "--findings-set", fid, "--folded-set", fid,
+                                "--refuted-set", "none"], capture_output=True, text=True,
+                               env={**_os.environ})
+            label = f"載體零引句/{optimized}/{fid}/{count_args}"
+            check(label + " rc2 且明確拒收", r.returncode == 2 and "沒有引句" in r.stderr,
+                  f"rc={r.returncode} {r.stdout[-150:]} {r.stderr[-200:]}")
+            check(label + " 提示兩條復原路徑", "處置選項" in r.stderr and "改選" in r.stderr
+                  and "載體" in r.stderr, r.stderr[-200:])
+            check(label + " 不印成功、不 traceback", "✓" not in r.stdout and "Traceback" not in r.stderr,
+                  r.stdout[-150:] + r.stderr[-150:])
+            check(label + " canary 帳逐位元不變", ledger.read_bytes() == before,
+                  str(_j.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])))
+        # 有引句但快照缺失，要由既有 IO 出口拒收，不誤報成零引句。
+        quoted = v / "Projects" / "quoted.md"
+        quoted.write_text("severity: minor\n## F1\nseverity: minor\n"
+                          "引句:「這是凍結材料裡可以核對的一整段文字」\n", encoding="utf-8")
+        before = ledger.read_bytes()
+        r = subprocess.run([*prefix, "--loop", f"code-zq-io-{_M1U}-{optimized}",
+                            "--snapshot", str(v / "missing.patch"),
+                            "--report", str(quoted), "--severity", "minor", "--findings", "1",
+                            "--findings-set", "F1", "--folded-set", "F1", "--refuted-set", "none"],
+                           capture_output=True, text=True, env={**_os.environ})
+        check(f"載體快照 IO/{optimized} rc2、不誤報零引句",
+              r.returncode == 2 and "--snapshot" in r.stderr and "沒有引句" not in r.stderr,
+              f"rc={r.returncode} {r.stderr[-200:]}")
+        check(f"載體快照 IO/{optimized} canary 帳逐位元不變", ledger.read_bytes() == before, "")
+
+
+def t_canary_carrier_quote_positive_controls():
+    """全錨載體照舊；literal none 真實 ID 與全輪集合不可被新守衛誤擋。"""
+    import json as _j
+    v = mkvault()
+    snap = v / "Projects" / "snapshot.patch"
+    snap.write_text("這是凍結材料裡可以核對的一整段文字\n", encoding="utf-8")
+    rpt = v / "Projects" / "quoted.md"
+    rpt.write_text("severity: minor\n## F1\nseverity: minor\n"
+                   "引句:「這是凍結材料裡可以核對的一整段文字」\n", encoding="utf-8")
+    for optimized in (False, True):
+        newline = "\r\n" if optimized else "\n"
+        snap.write_bytes(("這是凍結材料裡可以核對的一整段文字" + newline).encode("utf-8"))
+        rpt.write_bytes(("severity: minor\n## F1\nseverity: minor\n"
+                         "引句:「這是凍結材料裡可以核對的一整段文字」\n").replace("\n", newline).encode("utf-8"))
+        for index, (fid, count_args) in enumerate((("none", ["--findings", "1"]),
+                                                ("F1", []), ("F1,F2", ["--findings", "1"]))):
+            r = subprocess.run([sys.executable, *(["-O"] if optimized else []), GRAPHCTL,
+                                "--vault", str(v), "canary", "record", "none", "--round", "r1",
+                                "--loop", f"code-zq-positive-{_M1U}-{optimized}-{index}",
+                                "--auditor", "通才-codex", "--report", str(rpt), "--snapshot", str(snap),
+                                "--severity", "minor", *count_args, "--findings-set", fid,
+                                "--folded-set", fid, "--refuted-set", "none"], capture_output=True, text=True)
+            check(f"載體全錨/{optimized}/{fid}/{count_args} 成功", r.returncode == 0,
+                  f"rc={r.returncode} {r.stderr[-200:]}")
+            rows = (v.parent / ".canary-log.jsonl").read_text(encoding="utf-8").splitlines()
+            last = _j.loads(rows[-1])
+            check(f"載體全錨/{optimized}/{fid} 前置：確實解析審查報告", last.get("reported") == 1,
+                  str(last)[-200:])
+            check(f"載體全錨/{optimized}/{fid} ID 保留原意", last.get("findings_set") == fid.split(",")
+                  and last.get("folded_set") == fid.split(","), str(last)[-200:])
+
+
+def t_canary_carrier_invalid_report_encoding():
+    """載體報告不能以替換字元掩蓋非法 UTF-8，寫側與讀側要驗同一份資料。"""
+    import json as _j
+    for optimized in (False, True):
+        v = mkvault()
+        snap = v / "Projects" / "snapshot.patch"
+        snap.write_text("這是凍結材料裡可以核對的一整段文字\n", encoding="utf-8")
+        report = v / "Projects" / "report.md"
+        good = ("severity: minor\n## F1\nseverity: minor\n"
+                "引句:「這是凍結材料裡可以核對的一整段文字」\n").encode("utf-8")
+        report.write_bytes(good + b"\xff\n")
+        prefix = [sys.executable, *(["-O"] if optimized else []), GRAPHCTL,
+                  "--vault", str(v), "canary", "record", "none", "--auditor", "通才-codex",
+                  "--report", str(report), "--snapshot", str(snap), "--round", "r1",
+                  "--severity", "minor", "--findings", "1"]
+        # 非載體沿既有替換讀取：不是這次載體一致性守衛的範圍。
+        seed = subprocess.run([*prefix, "--loop", f"code-zq-encoding-seed-{_M1U}"],
+                              capture_output=True, text=True)
+        check(f"報告編碼/{optimized} 前置：非載體既有行為", seed.returncode == 0, seed.stderr[-200:])
+        ledger = v.parent / ".canary-log.jsonl"
+        before = ledger.read_bytes()
+        last = _j.loads(before.decode("utf-8").splitlines()[-1])
+        check(f"報告編碼/{optimized} 前置：報告確經解析", last.get("reported") == 1, str(last)[-200:])
+        result = subprocess.run([*prefix, "--loop", f"code-zq-encoding-{_M1U}",
+                                 "--findings-set", "F1", "--folded-set", "F1", "--refuted-set", "none"],
+                                capture_output=True, text=True)
+        check(f"報告編碼/{optimized} rc2、定位報告與編碼", result.returncode == 2
+              and "--report" in result.stderr and "utf-8" in result.stderr.lower(), result.stderr[-200:])
+        check(f"報告編碼/{optimized} 沒有假成功或 traceback", "✓" not in result.stdout
+              and "Traceback" not in result.stderr, result.stdout[-150:] + result.stderr[-150:])
+        check(f"報告編碼/{optimized} canary 帳逐位元不變", ledger.read_bytes() == before, "")
+
+
+def t_canary_carrier_evidence_changes_before_hash():
+    """驗引句與落帳指紋不得混用不同版本；可控替換確實發生在 hash 讀取前。"""
+    import ast as _ast
+    import contextlib as _ctx
+    import io as _io
+    lm = _load_lumos_inproc()
+    tree = _ast.parse(Path(GRAPHCTL).read_text(encoding="utf-8"))
+    function = next(n for n in tree.body if isinstance(n, _ast.FunctionDef) and n.name == "cmd_canary")
+    for optimized in (0, 1):
+        for target in ("report", "snapshot"):
+            v = mkvault()
+            snap = v / "Projects" / "snapshot.patch"
+            report = v / "Projects" / "report.md"
+            snap.write_text("這是凍結材料裡可以核對的一整段文字\n", encoding="utf-8")
+            report.write_text("severity: minor\n## F1\nseverity: minor\n"
+                              "引句:「這是凍結材料裡可以核對的一整段文字」\n", encoding="utf-8")
+            kwargs = dict(round_id="r1", auditor="通才-codex", severity="minor", findings=1,
+                          report=str(report), snapshot=str(snap))
+            with _ctx.redirect_stdout(_io.StringIO()), _ctx.redirect_stderr(_io.StringIO()):
+                seed_rc = lm.cmd_canary(lm.Env(v), "none", loop="code-zq-race-seed", **kwargs)
+            check(f"換檔/{optimized}/{target} 前置：合法材料可記帳", seed_rc == 0, str(seed_rc))
+            ledger = v.parent / ".canary-log.jsonl"
+            before = ledger.read_bytes()
+            changing = report if target == "report" else snap
+            changed = []
+            original_hash = lm._sha256_file
+            def mutate_then_hash(path, changing=changing, target=target, changed=changed,
+                                 original_hash=original_hash):
+                if Path(path) == changing and not changed:
+                    content = ("severity: minor\n## F1\nseverity: minor\n零引句新報告。\n"
+                               if target == "report" else "另外一個程序已換掉快照內容。\n")
+                    changing.write_text(content, encoding="utf-8")
+                    changed.append(str(changing))
+                return original_hash(path)
+            namespace = dict(lm.__dict__)
+            namespace["_sha256_file"] = mutate_then_hash
+            exec(compile(_ast.Module(body=[function], type_ignores=[]), GRAPHCTL, "exec",
+                         optimize=optimized), namespace)
+            out, err = _io.StringIO(), _io.StringIO()
+            with _ctx.redirect_stdout(out), _ctx.redirect_stderr(err):
+                rc = namespace["cmd_canary"](lm.Env(v), "none", loop="code-zq-race",
+                                             findings_set="F1", folded_set="F1", refuted_set="none", **kwargs)
+            check(f"換檔/{optimized}/{target} 前置：確在 hash 讀取前替換", changed == [str(changing)], str(changed))
+            check(f"換檔/{optimized}/{target} rc2 且定位材料變動", rc == 2 and "變動" in err.getvalue()
+                  and f"--{target}" in err.getvalue(), f"rc={rc} {err.getvalue()[-200:]}")
+            check(f"換檔/{optimized}/{target} 不印成功、不 traceback", "✓" not in out.getvalue()
+                  and "Traceback" not in err.getvalue(), out.getvalue()[-150:] + err.getvalue()[-150:])
+            check(f"換檔/{optimized}/{target} canary 帳逐位元不變", ledger.read_bytes() == before, "")
 
 
 def t_canary_record_disposal_fields_optional():
@@ -31059,6 +32437,598 @@ def _rt_line(root, text, nth=1):
     return [i for i, l in enumerate(pay.read_text().split("\n"), 1) if l.strip() == text][nth - 1]
 
 
+# ── 照留表態要有期限或去處(Projects/照留表態要有期限或去處_計劃)──────────────────────────────────────────
+_RA_PROBE = "REVISIT:[when-file:src/new.py][by:2099-01-01] 補跨行程搶同鍵的測試"
+
+
+def _ra_today():
+    """跟工具同一個算法的本機日期(lumos 各處寫 datetime.now(timezone.utc).astimezone().date())。"""
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).astimezone().date()
+
+
+def _ra_repo(issue_status="open"):
+    """漂移測試專案 + 一篇 Issue(預設開著);src/new.py 先在 → Pay 寫 _RA_PROBE 時條件就成立。回 (root, 起點)。"""
+    root = _dr_repo()
+    _nh_node(root, "排程", typ="issue", folder="Issues", status=issue_status, resp=None, summary="KEY:i")
+    base = _rt_push(root, [], files=("src/new.py",), msg="file first")
+    return root, base
+
+
+def _ra_ack(root, line, kind="probe", tracked=None, reason="還沒補,先照留", commit=True, node="Systems/Pay"):
+    """對 node(預設 Pay)第 line 行照留(可帶 --tracked-in)→ (rc, 輸出, 頂端)。"""
+    import subprocess as sp
+    args = [sys.executable, GRAPHCTL, "drift", "ack", node, str(line), "--kind", kind, "--reason", reason]
+    if tracked is not None:
+        args += ["--tracked-in", tracked]
+    r = sp.run(args, capture_output=True, text=True, cwd=str(root))
+    if commit:
+        _nh_git(root, "add", "-A")
+        _nh_git(root, "commit", "-q", "-m", "ack", "--allow-empty")
+    return r.returncode, r.stdout + r.stderr, _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+
+
+def _ra_rows(root):
+    import json as _j
+    fp = root / "governance" / "drift-acks.jsonl"
+    return [_j.loads(ln) for ln in fp.read_text(encoding="utf-8").splitlines() if ln.strip()] if fp.is_file() else []
+
+
+def _ra_write_rows(root, rows, extra_lines=()):
+    import json as _j
+    fp = root / "governance" / "drift-acks.jsonl"
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text("".join(_j.dumps(r, ensure_ascii=False) + "\n" for r in rows) + "".join(x + "\n" for x in extra_lines),
+                  encoding="utf-8")
+
+
+def t_drift_ack_routed_fields():
+    """[照留表態 S1] probe 照留沒帶 --tracked-in 記 until=表態日+30、不記 tracked_in;帶了指到開著的 Issue 記 tracked_in、不記 until。
+    翻紅釘:cmd_drift_ack 不寫 until → ①紅;不收 --tracked-in → ②紅。"""
+    print("t_drift_ack_routed_fields")
+    import datetime as _dt
+    root, _b = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    line = _rt_line(root, _RA_PROBE)
+    rc, out, _t = _ra_ack(root, line)
+    row = (_ra_rows(root) or [{}])[-1]
+    want = (_ra_today() + _dt.timedelta(days=30)).isoformat()
+    check("①沒帶 --tracked-in:記 until=今天+30、不記 tracked_in", rc == 0 and row.get("until") == want
+          and "tracked_in" not in row, (rc, out[-300:], row))
+    check("①成功訊息講到哪天", want in out, out[-300:])
+    rc, out, _t = _ra_ack(root, line, tracked="Issues/排程")
+    row = (_ra_rows(root) or [{}])[-1]
+    check("②帶 --tracked-in 開著的 Issue:記 tracked_in(repo 相對路徑)、不記 until",
+          rc == 0 and row.get("tracked_in") == "docs/kg-knowledge/Issues/排程.md" and "until" not in row, (rc, out[-300:], row))
+    check("②成功訊息講綁哪篇", "Issues/排程" in out, out[-300:])
+    print("  ✓ t_drift_ack_routed_fields")
+
+
+def t_drift_ack_routed_rejects():
+    """[照留表態 S2] --tracked-in 指到不存在、已收尾的 Issue、驗證紀錄、Systems 節點、沒有狀態欄的筆記、那一行所在的同一篇 → rc2 不寫;
+    --kind c2 帶 --tracked-in → rc2。翻紅釘:拿掉 _drift_route_open 的判斷 → ②③④紅;拿掉同一篇檢查 → ⑦紅;拿掉計劃收尾判斷 → ⑥紅。"""
+    print("t_drift_ack_routed_rejects")
+    root, _b = _ra_repo()
+    _nh_node(root, "結了", typ="issue", folder="Issues", status="resolved", resp=None, summary="KEY:i")
+    _nh_node(root, "做完_計劃", typ="project", folder="Projects", status="done", resp=None, summary="KEY:p")
+    _nh_node(root, "驗過", typ="verification", folder="Verification", status="pass", resp=None, summary="KEY:v")
+    _nh_node(root, "別的系統", summary="FLOW:b")
+    nost = root / "docs" / "kg-knowledge" / "Projects" / "沒狀態.md"
+    nost.write_text("---\ntype: project\nsummary: |-\n  KEY:x\n---\n# 沒狀態\n", encoding="utf-8")
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    line = _rt_line(root, _RA_PROBE)
+    n0 = len(_ra_rows(root))
+    for i, (tr, why) in enumerate((("Issues/不存在", "不存在"), ("Issues/結了", "已收尾的 Issue"), ("Verification/驗過", "驗證紀錄"),
+                                    ("Systems/別的系統", "Systems 節點"), ("Projects/沒狀態", "沒有狀態欄"),
+                                    ("Projects/做完_計劃", "已收尾的計劃")), 1):
+        rc, out, _t = _ra_ack(root, line, tracked=tr, commit=False)
+        check(f"{'①②③④⑤⑥'[i - 1]}--tracked-in 指到{why}:rc2 不寫", rc == 2 and len(_ra_rows(root)) == n0, (rc, out[-300:]))
+    # ⑦同一篇:回頭條件寫在一篇開著的計劃裡、又綁那篇自己(開著,只有「同一篇」這條會擋)
+    _nh_node(root, "退款_計劃", typ="project", folder="Projects", resp=None, summary="KEY:p\n" + _RA_PROBE)
+    _nh_commit(root, "probe in plan")
+    pl = root / "docs" / "kg-knowledge" / "Projects" / "退款_計劃.md"
+    pline = next(i for i, ln in enumerate(pl.read_text(encoding="utf-8").split("\n"), 1) if ln.strip() == _RA_PROBE)
+    rc, out, _t = _ra_ack(root, pline, tracked="Projects/退款_計劃", commit=False, node="Projects/退款_計劃")
+    check("⑦--tracked-in 指到那一行所在的同一篇(開著的計劃):rc2 不寫", rc == 2 and len(_ra_rows(root)) == n0
+          and "同一篇" in out, (rc, out[-300:]))
+    rc, out, _t = _ra_ack(root, line, kind="c2", tracked="Issues/排程", commit=False)
+    check("⑧--kind c2 帶 --tracked-in:rc2", rc == 2 and len(_ra_rows(root)) == n0, (rc, out[-300:]))
+    print("  ✓ t_drift_ack_routed_rejects")
+
+
+def t_drift_ack_live_rules():
+    """[照留表態 S3] _drift_ack_live:過期、綁的收尾或不在、tracked_in 不是非空字串、until 不是 YYYY-MM-DD → 失效原因;
+    期限當天、綁的開著 → 空字串;型別錯誤不丟例外。翻紅釘:期限比較改成 >= → ②紅;拿掉 until 形狀檢查 → ④紅。"""
+    print("t_drift_ack_live_rules")
+    import datetime as _dt
+    m = _load_lumos_inproc()
+    d = _dt.date(2026, 10, 10)
+    states = {"docs/kg-knowledge/Issues/開.md": ("issue", "open"), "docs/kg-knowledge/Issues/結.md": ("issue", "resolved"),
+              "docs/kg-knowledge/Projects/計.md": ("project", "todo"), "docs/kg-knowledge/Verification/驗.md": ("verification", "pass")}
+    ns = states.get
+
+    def live(**a):
+        return m._drift_ack_live(dict({"kind": "probe", "path": "p", "text": "t"}, **a), d, ns)
+    check("①期限還沒到:活著", live(until="2026-10-11") == "", live(until="2026-10-11"))
+    check("②期限當天:活著;隔天:失效且講期限", live(until="2026-10-10") == "" and "2026-10-09" in live(until="2026-10-09"),
+          (live(until="2026-10-10"), live(until="2026-10-09")))
+    check("③綁開著的 Issue 或 todo 計劃:活著", live(tracked_in="docs/kg-knowledge/Issues/開.md") == ""
+          and live(tracked_in="docs/kg-knowledge/Projects/計.md") == "", "")
+    for v, why in (("docs/kg-knowledge/Issues/結.md", "收尾"), ("docs/kg-knowledge/Issues/沒有.md", "不在"),
+                   ("docs/kg-knowledge/Verification/驗.md", "驗證紀錄")):
+        check(f"③綁{why}:失效", live(tracked_in=v) != "", live(tracked_in=v))
+    for bad in (None, 20261105, "20261105", "2026-1-5", "2026-10-10T00:00", ["2026-10-11"], ""):
+        try:
+            got = live(until=bad)
+        except Exception as ex:      # 這條就是在驗不丟例外
+            got = ex
+        check(f"④until={bad!r}:回失效原因、不丟例外", isinstance(got, str) and got != "", repr(got))
+    for bad in ("", 3, ["x"], None):
+        try:
+            got = live(tracked_in=bad)
+        except Exception as ex:      # 同上
+            got = ex
+        check(f"⑤tracked_in={bad!r}:回失效原因、不丟例外", isinstance(got, str) and got != "", repr(got))
+    print("  ✓ t_drift_ack_live_rules")
+
+
+def t_drift_ack_routed_expiry():
+    """[照留表態 S4] drift scan:失效的 probe 照留那一行列回要處理並印舊理由與失效原因;同一行三種照留混雜、任一筆活著就算已表態;
+    表態檔有一行壞 JSON 照常判其他筆。翻紅釘:cmd_drift_scan 不傳 as_of → ①紅;多筆取最後一筆判 → ②紅。"""
+    print("t_drift_ack_routed_expiry")
+    import datetime as _dt
+    root, _b = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    line = _rt_line(root, _RA_PROBE)
+    _ra_ack(root, line, reason="跨行程測試還沒補")
+    rows = _ra_rows(root)
+    past = (_ra_today() - _dt.timedelta(days=1)).isoformat()
+    rows[-1]["until"] = past
+    _ra_write_rows(root, rows)
+    _nh_commit(root, "expire")
+    vault = root / "docs" / "kg-knowledge"
+    fs = _dr_scan(vault)
+    mine = [f for f in fs if isinstance(f, dict) and f.get("kind") == "probe"] if isinstance(fs, list) else fs
+    check("①過期的照留:那一行回到要處理", isinstance(mine, list) and any(not f["acked"] for f in mine), str(mine)[-400:])
+    txt = run(vault, "drift", "scan")
+    out = txt.stdout + txt.stderr
+    check("①印舊理由與失效原因、教 --tracked-in", "跨行程測試還沒補" in out and past in out and "--tracked-in" in out, out[-900:])
+    future = (_ra_today() + _dt.timedelta(days=5)).isoformat()
+    legacy = {k: v for k, v in rows[-1].items() if k not in ("until", "tracked_in")}
+    tracked_dead = dict(rows[-1], until=None, tracked_in="docs/kg-knowledge/Issues/不存在.md")
+    tracked_dead.pop("until")
+    for combo, want, why in (([rows[-1], dict(rows[-1], until=future)], True, "一筆過期一筆有效"),
+                             ([tracked_dead, dict(rows[-1], until=future), legacy], True, "綁不在、有期限、舊表態三種混雜"),
+                             ([rows[-1], tracked_dead], False, "全部失效")):
+        _ra_write_rows(root, combo, extra_lines=("{壞掉的一行",))
+        _nh_commit(root, "mix")
+        fs = _dr_scan(vault)
+        mine = [f for f in fs if isinstance(f, dict) and f.get("kind") == "probe"] if isinstance(fs, list) else []
+        check(f"②{why}:{'已表態' if want else '要處理'}(壞 JSON 那行略過)", mine and all(f["acked"] == want for f in mine),
+              str(fs)[-400:])
+    print("  ✓ t_drift_ack_routed_expiry")
+
+
+def t_drift_ack_routed_legacy():
+    """[照留表態 S5] 沒有 until 也沒有 tracked_in 的舊照留以 _DRIFT_ACK_LEGACY_UNTIL 為期限:當天有效、隔天失效。
+    翻紅釘:舊表態分支回空字串(永久有效)→ ②紅。"""
+    print("t_drift_ack_routed_legacy")
+    import datetime as _dt
+    m = _load_lumos_inproc()
+    lim = _dt.date.fromisoformat(m._DRIFT_ACK_LEGACY_UNTIL)
+    a = {"kind": "probe", "path": "p", "text": "t", "reason": "舊的", "date": "2026-09-30"}
+    check("①期限當天:有效", m._drift_ack_live(a, lim, lambda p: None) == "", m._drift_ack_live(a, lim, lambda p: None))
+    got = m._drift_ack_live(a, lim + _dt.timedelta(days=1), lambda p: None)
+    check("②隔天:失效並講期限", got != "" and m._DRIFT_ACK_LEGACY_UNTIL in got, got)
+    check("③retire 同一套", m._drift_ack_live(dict(a, kind="retire"), lim + _dt.timedelta(days=1), lambda p: None) != "", "")
+    print("  ✓ t_drift_ack_routed_legacy")
+
+
+def t_drift_check_born_needs_routed_ack():
+    """[照留表態 S6] 有起點的推送新寫一條寫下時就已成立的回頭條件,同一次補了沒綁去處的照留 → 照擋並教 --tracked-in;
+    照留帶 tracked_in → 放行,那篇在被推送版本裡已收尾也放行(推送不看開不開)。RULE 撤除條件同一套。
+    翻紅釘:born_now 不標 → ①紅;推送路徑判開不開 → ③紅。"""
+    print("t_drift_check_born_needs_routed_ack")
+    root, base = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe already true")
+    rc0, _o, tip = _ra_ack(root, _rt_line(root, _RA_PROBE))
+    rc, out = _dr(root, "check", "--diff", f"{base}..{tip}")
+    check("①新寫就成立 + 裸照留:照擋並教 --tracked-in", rc0 == 0 and rc == 1 and "--tracked-in" in out, out[-900:])
+    root, base = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe already true")
+    rc0, _o, tip = _ra_ack(root, _rt_line(root, _RA_PROBE), tracked="Issues/排程")
+    rc, out = _dr(root, "check", "--diff", f"{base}..{tip}")
+    check("②新寫就成立 + 綁去處的照留:放行", rc0 == 0 and rc == 0, out[-700:])
+    _nh_node(root, "排程", typ="issue", folder="Issues", status="resolved", resp=None, summary="KEY:i")
+    tip2 = _rt_push(root, [_RA_PROBE], msg="close issue")
+    rc, out = _dr(root, "check", "--diff", f"{base}..{tip2}")
+    check("③綁的那篇在被推送版本裡已收尾:推送照放行(開不開交給 scan)", rc == 0, out[-700:])
+    rule = "RULE:要人簽 [依據:人] [since:2026-09-01] [retire:when-file:src/new.py]"
+    root, base = _ra_repo()
+    _rt_push(root, [rule], msg="rule already true")
+    rc0, _o, tip = _ra_ack(root, _rt_line(root, rule), kind="retire")
+    rc, out = _dr(root, "check", "--diff", f"{base}..{tip}")
+    check("④RULE 撤除條件新寫就成立 + 裸照留:照擋", rc0 == 0 and rc == 1 and "--tracked-in" in out, out[-900:])
+    print("  ✓ t_drift_check_born_needs_routed_ack")
+
+
+def t_drift_check_routed_no_date():
+    """[照留表態 S7] 推送讓既有回頭條件成立、照留沒綁去處 → 照舊放行,連期限已過也放行(推送不看日期);
+    找不到主線的新分支首推截到上線點算起點,上線點之後新寫就已成立的行配裸照留 → 照擋(同有起點);
+    單元層 born_now 為假的發現配裸照留 → 已表態。翻紅釘:推送路徑套用期限 → ①紅;old is None 也標 born_now → ③紅。"""
+    print("t_drift_check_routed_no_date")
+    import datetime as _dt
+    root = _dr_repo()
+    _nh_node(root, "排程", typ="issue", folder="Issues", status="open", resp=None, summary="KEY:i")
+    base = _rt_push(root, [_RA_PROBE], msg="probe not yet true")
+    _rt_push(root, [_RA_PROBE], files=("src/new.py",), msg="file makes it true")
+    _ra_ack(root, _rt_line(root, _RA_PROBE))
+    rows = _ra_rows(root)
+    rows[-1]["until"] = (_ra_today() - _dt.timedelta(days=60)).isoformat()
+    _ra_write_rows(root, rows)
+    _nh_commit(root, "expired 60 days ago")
+    tip = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    rc, out = _dr(root, "check", "--diff", f"{base}..{tip}")
+    check("①這次推送讓既有條件成立 + 裸照留(期限已過 60 天):放行", rc == 0, out[-700:])
+    root, _b = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    _rc, _o, tip = _ra_ack(root, _rt_line(root, _RA_PROBE))
+    rc, out = _dr(root, "check", "--diff", f"{'0' * 40}..{tip}", "--push-remote", "origin", "--pushed-ref", "refs/heads/feat")
+    check("②找不到主線的首推(截到上線點):上線點之後新寫就成立 + 裸照留照擋", rc == 1 and "--tracked-in" in out, out[-700:])
+    m = _load_lumos_inproc()
+    f = {"kind": "probe", "path": "Systems/Pay.md", "line": 3, "text": "t", "born_now": False}
+    a = {"kind": "probe", "path": "docs/kg-knowledge/Systems/Pay.md", "text": "t", "reason": "照留中", "until": "2000-01-01"}
+    left, done = m._drift_split_acked([f], [a], "docs/kg-knowledge")
+    check("③不是新寫就成立(含沒有起點)的發現:推送時裸照留照算(期限已過也算)", done == [f] and not left, (left, done))
+    # ④沒有起點(base=None)時 _drift_probe_check 不標 born_now;有起點的同一行標(代碼審 r1 正確性席 F3:原本只驗分堆)
+    tenv = m._drift_tree_env(str(root), tip, "docs/kg-knowledge")
+    nob = m._drift_probe_check(str(root), None, tip, "docs/kg-knowledge", tenv)[0]
+    hasb = m._drift_probe_check(str(root), _b, tip, "docs/kg-knowledge", tenv)[0]
+    check("④沒有起點:不標 born_now;有起點的新寫:標", nob and not any(x.get("born_now") for x in nob)
+          and hasb and all(x.get("born_now") for x in hasb), (nob, hasb))
+    print("  ✓ t_drift_check_routed_no_date")
+
+
+def t_drift_doctor_dead_acks():
+    """[照留表態 S8] probe/retire 照留已失效而那一行還在 → doctor 印一行筆數與前幾筆、提示 drift scan;沒有就不印。
+    翻紅釘:_drift_doctor_lines 不呼叫 _drift_ack_live → ①紅。"""
+    print("t_drift_doctor_dead_acks")
+    import datetime as _dt
+    root, _b = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    _ra_ack(root, _rt_line(root, _RA_PROBE))
+    vault = root / "docs" / "kg-knowledge"
+    r = run(vault, "doctor")
+    check("②都還有效:不印", "照留已失效" not in (r.stdout + r.stderr), (r.stdout + r.stderr)[-500:])
+    rows = _ra_rows(root)
+    rows[-1]["until"] = (_ra_today() - _dt.timedelta(days=1)).isoformat()
+    _ra_write_rows(root, rows)
+    r = run(vault, "doctor")
+    out = r.stdout + r.stderr
+    check("①有一筆失效、那一行還在:印筆數、那一篇、提示 drift scan", "照留已失效 1 筆" in out and "Systems/Pay" in out
+          and "drift scan" in out, out[-800:])
+    # ③欄位寫在續行的 RULE:retire 照留記接回續行的整條,doctor 也要認得(代碼審 r1 正確性席 F2、架構對齊席 F1)
+    head = "RULE:要人簽 [依據:人] [since:2026-09-01]"
+    root, _b = _ra_repo()
+    _rt_push(root, [head, "  [retire:when-file:src/new.py]"], msg="rule")
+    _ra_ack(root, _rt_line(root, head), kind="retire")
+    rows = _ra_rows(root)
+    rows[-1]["until"] = (_ra_today() - _dt.timedelta(days=1)).isoformat()
+    _ra_write_rows(root, rows)
+    out = (lambda r: r.stdout + r.stderr)(run(root / "docs" / "kg-knowledge", "doctor"))
+    check("③續行 RULE 的 retire 照留過期:doctor 照列", "照留已失效 1 筆" in out, out[-800:])
+    print("  ✓ t_drift_doctor_dead_acks")
+
+
+def t_drift_ack_routed_tracked_state():
+    """[照留表態 S4 補] 綁去處的照留:那篇開著 → drift scan 算已表態、doctor 不列;那篇收尾 → scan 列回要處理並講已收尾、
+    doctor 列;那篇刪掉 → 講不在了(代碼審 r1 正確性席 F1:_drift_note_state 改成永遠回 None 原本測試照綠)。
+    翻紅釘:_drift_note_state 永遠回 None → ①紅;_drift_route_open 一律 True → ②紅。"""
+    print("t_drift_ack_routed_tracked_state")
+    root, _b = _ra_repo()
+    _rt_push(root, [_RA_PROBE], msg="probe")
+    _ra_ack(root, _rt_line(root, _RA_PROBE), tracked="Issues/排程", reason="排進排程那篇")
+    vault = root / "docs" / "kg-knowledge"
+
+    def probe_acked():
+        fs = _dr_scan(vault)
+        mine = [f for f in fs if isinstance(f, dict) and f.get("kind") == "probe"] if isinstance(fs, list) else []
+        return [f["acked"] for f in mine], fs
+
+    got, fs = probe_acked()
+    doc = (lambda r: r.stdout + r.stderr)(run(vault, "doctor"))
+    check("①綁的 Issue 開著:scan 算已表態、doctor 不列", got == [True] and "照留已失效" not in doc, (str(fs)[-300:], doc[-300:]))
+    _nh_node(root, "排程", typ="issue", folder="Issues", status="resolved", resp=None, summary="KEY:i")
+    _nh_commit(root, "close")
+    got, fs = probe_acked()
+    txt = (lambda r: r.stdout + r.stderr)(run(vault, "drift", "scan"))
+    doc = (lambda r: r.stdout + r.stderr)(run(vault, "doctor"))
+    check("②綁的 Issue 收尾:scan 列回要處理、講已收尾與舊理由;doctor 列", got == [False] and "已收尾" in txt
+          and "排進排程那篇" in txt and "照留已失效 1 筆" in doc, (txt[-600:], doc[-400:]))
+    (vault / "Issues" / "排程.md").unlink()
+    _nh_commit(root, "delete")
+    txt = (lambda r: r.stdout + r.stderr)(run(vault, "drift", "scan"))
+    check("③綁的 Issue 刪掉:講不在了", "不在了" in txt, txt[-600:])
+    print("  ✓ t_drift_ack_routed_tracked_state")
+
+
+# ── 改摘要單行的指令(Projects/改摘要單行的指令_計劃)─────────────────────────────────────────────
+def _sl_vault(summary):
+    """一篇 Systems/Pay,摘要給定 → (root, vault, 筆記路徑)。"""
+    root = _nh_repo()
+    p = _nh_node(root, "Pay", summary=summary)
+    _nh_commit(root, "init")
+    return root, root / "docs" / "kg-knowledge", p
+
+
+def _sl_summary(p):
+    lines = p.read_text(encoding="utf-8").split("\n")
+    i = next(k for k, ln in enumerate(lines) if ln.startswith("summary:"))
+    out = []
+    for ln in lines[i + 1:]:
+        if ln.startswith("  "):
+            out.append(ln[2:])
+        else:
+            break
+    return out
+
+
+def _sl_today():
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).astimezone().date().isoformat()
+
+
+def t_summary_line_replace():
+    """[改摘要單行 S1] 舊片段恰好出現一次 → 換成新片段、updated 改今天、印改前改後、其他行不動。
+    翻紅釘:不改 updated → ②紅;換了第一個以外的行 → ①紅。"""
+    print("t_summary_line_replace")
+    _root, v, p = _sl_vault("WHY:用 A 方案 [出處:x] [因:y]\nKEY:第二條不動\nWHY:另一條 [出處:z] [因:w]")
+    before = p.read_text(encoding="utf-8")
+    r = run(v, "summary-line", "Systems/Pay", "用 A 方案", "改用 B 方案")
+    s = _sl_summary(p)
+    check("①換掉那一段、其他行不動", r.returncode == 0 and s == ["WHY:改用 B 方案 [出處:x] [因:y]", "KEY:第二條不動",
+                                                          "WHY:另一條 [出處:z] [因:w]"], (r.stdout + r.stderr, s))
+    check("②updated 改成今天", f"updated: {_sl_today()}" in p.read_text(encoding="utf-8"), p.read_text(encoding="utf-8")[:300])
+    check("③印改前改後", "WHY:用 A 方案" in r.stdout and "WHY:改用 B 方案" in r.stdout, r.stdout)
+    body_old = before.split("\n---\n", 1)[1]
+    # ⑤新的那一行剛好跟另一行一模一樣:自驗照算對(代碼審 r1 正確性席 F4)
+    _root2, v2, p2 = _sl_vault("KEY:甲\nKEY:乙")
+    r2 = run(v2, "summary-line", "Systems/Pay", "乙", "甲")
+    check("⑤新行跟另一行一樣:照改", r2.returncode == 0 and _sl_summary(p2) == ["KEY:甲", "KEY:甲"], (r2.stdout + r2.stderr, _sl_summary(p2)))
+    check("④正文一字不動", p.read_text(encoding="utf-8").split("\n---\n", 1)[1] == body_old, "")
+    print("  ✓ t_summary_line_replace")
+
+
+def t_summary_line_ambiguous():
+    """[改摘要單行 S2] 舊片段出現兩行以上或同一行兩次 → rc2 不寫、列候選行號與前 40 字;--nth 2 改第二個出現處。
+    翻紅釘:對到多個時改第一個 → ①紅;--nth 數錯 → ③紅。"""
+    print("t_summary_line_ambiguous")
+    _root, v, p = _sl_vault("RULE:甲 [依據:人] [since:2026-01-01] [retire:人裁] [until:2027-01-01]\n"
+                           "RULE:乙 [依據:人] [since:2026-01-01] [retire:人裁] [until:2027-01-01]")
+    before = p.read_text(encoding="utf-8")
+    r = run(v, "summary-line", "Systems/Pay", "[依據:人]", "[依據:外部]")
+    out = r.stdout + r.stderr
+    check("①對到兩行:rc2、檔不動、列出兩個候選", r.returncode == 2 and p.read_text(encoding="utf-8") == before
+          and "RULE:甲" in out and "RULE:乙" in out and "--nth" in out, out)
+    _root, v, p = _sl_vault("KEY:同一行 xx 兩次 xx")
+    before = p.read_text(encoding="utf-8")
+    r = run(v, "summary-line", "Systems/Pay", "xx", "yy")
+    check("②同一行出現兩次:rc2、檔不動", r.returncode == 2 and p.read_text(encoding="utf-8") == before, r.stdout + r.stderr)
+    r = run(v, "summary-line", "Systems/Pay", "xx", "yy", "--nth", "2")
+    check("③--nth 2:換第二個出現處", r.returncode == 0 and _sl_summary(p) == ["KEY:同一行 xx 兩次 yy"], (r.stdout + r.stderr, _sl_summary(p)))
+    r = run(v, "summary-line", "Systems/Pay", "yy", "zz", "--nth", "3")
+    check("④--nth 超出範圍:rc2", r.returncode == 2, r.stdout + r.stderr)
+    print("  ✓ t_summary_line_ambiguous")
+
+
+def t_summary_line_rejects():
+    """[改摘要單行 S3] 找不到、舊片段空或含換行、新片段含換行、節點不存在 → rc2 不寫。翻紅釘:不擋空的舊片段 → ①-④紅。"""
+    print("t_summary_line_rejects")
+    _root, v, p = _sl_vault("KEY:一條 [x]\nKEY:另一條")
+    before = p.read_text(encoding="utf-8")
+    for args, why, say in ((("找不到的字", "新"), "找不到", "摘要裡找不到"), (("", "新"), "舊片段空", "不能是空的"),
+                           (("一條\nKEY", "新"), "舊片段含換行", "不能含換行"), (("一條", "新\n行"), "新片段含換行", "不能含換行")):
+        r = run(v, "summary-line", "Systems/Pay", *args)
+        check(f"①-④{why}:rc2、檔不動、講原因", r.returncode == 2 and p.read_text(encoding="utf-8") == before
+              and say in r.stdout + r.stderr, r.stdout + r.stderr)
+    r = run(v, "summary-line", "Systems/不存在", "a", "b")
+    check("⑤節點不存在:rc2、講找不到那篇(共用的近名候選訊息)", r.returncode == 2
+          and "找不到叫「Systems/不存在」的筆記" in r.stdout + r.stderr, r.stdout + r.stderr)
+    for bad in ("\r", "\x85", "\u2028", "\x0b"):
+        r = run(v, "summary-line", "Systems/Pay", "一條", f"新{bad}行")
+        check(f"⑥新片段含換行類字元 {bad!r}:rc2、檔不動", r.returncode == 2 and p.read_text(encoding="utf-8") == before
+              and "不能含換行" in r.stdout + r.stderr, r.stdout + r.stderr)
+    r = run(v, "summary-line", "Systems/Pay", "一條", "一條")
+    check("⑦新舊片段相同:rc2、講沒有要改的", r.returncode == 2 and p.read_text(encoding="utf-8") == before
+          and "沒有要改的" in r.stdout + r.stderr, r.stdout + r.stderr)
+    print("  ✓ t_summary_line_rejects")
+
+
+def t_summary_line_continuation():
+    """[改摘要單行 S5] 目標行屬於跨多個實體行的條目(第一行或續行)→ rc2、檔不動、講不支援續行。翻紅釘:不擋續行 → ①紅。"""
+    print("t_summary_line_continuation")
+    _root, v, p = _sl_vault("RULE:要人簽 [依據:人] [since:2026-09-01]\n  [retire:when-file:src/a.py]\nKEY:別條")
+    before = p.read_text(encoding="utf-8")
+    for frag in ("要人簽", "src/a.py"):
+        r = run(v, "summary-line", "Systems/Pay", frag, "改")
+        check(f"①續行條目({frag}):rc2、檔不動、講續行", r.returncode == 2 and p.read_text(encoding="utf-8") == before
+              and "續行" in r.stdout + r.stderr, r.stdout + r.stderr)
+    r = run(v, "summary-line", "Systems/Pay", "KEY:別條", "KEY:別條改過")
+    check("②同一篇單行的條目照改", r.returncode == 0 and "KEY:別條改過" in _sl_summary(p), r.stdout + r.stderr)
+    print("  ✓ t_summary_line_continuation")
+
+
+def t_summary_line_delete():
+    """[改摘要單行 S4] 換完只剩空白 → 拿掉那一行;摘要因此變空 → rc2 不寫。翻紅釘:留下空行 → ①紅。"""
+    print("t_summary_line_delete")
+    _root, v, p = _sl_vault("KEY:留著\nKEY:要刪的這一條")
+    r = run(v, "summary-line", "Systems/Pay", "KEY:要刪的這一條", "")
+    check("①整行刪光:拿掉那一行", r.returncode == 0 and _sl_summary(p) == ["KEY:留著"], (r.stdout + r.stderr, _sl_summary(p)))
+    before = p.read_text(encoding="utf-8")
+    r = run(v, "summary-line", "Systems/Pay", "KEY:留著", "")
+    check("②刪完摘要會空:rc2、檔不動", r.returncode == 2 and p.read_text(encoding="utf-8") == before, r.stdout + r.stderr)
+    print("  ✓ t_summary_line_delete")
+
+
+def t_summary_line_verify():
+    """[改摘要單行 S6] 寫入自驗失敗 → rc2、原檔不動;--dry-run 只印不寫;成功後提示 lint 那一篇。
+    翻紅釘:不走 atomic_write_verify(直接寫)→ ①紅。"""
+    print("t_summary_line_verify")
+    import io, contextlib
+    m = _load_lumos_inproc()
+    _root, v, p = _sl_vault("KEY:正常的一條\nKEY:別條")
+    before = p.read_text(encoding="utf-8")
+    orig = m.atomic_write_verify
+
+    def _boom(*a, **k):
+        raise RuntimeError("測試:自驗失敗")
+    m.atomic_write_verify = _boom
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = m.cmd_summary_line(m.Env(v), "Systems/Pay", "正常的一條", "改過的一條")
+    finally:
+        m.atomic_write_verify = orig
+    check("①寫入自驗失敗:rc2、原檔不動", rc == 2 and p.read_text(encoding="utf-8") == before, buf.getvalue())
+    r = run(v, "summary-line", "Systems/Pay", "正常的一條", "改過的一條", "--dry-run")
+    check("②--dry-run:印改後、檔不動", r.returncode == 0 and "改過的一條" in r.stdout and p.read_text(encoding="utf-8") == before,
+          r.stdout + r.stderr)
+    r = run(v, "summary-line", "Systems/Pay", "正常的一條", "改過的一條")
+    check("③成功後提示 lint 那一篇", r.returncode == 0 and "lumos lint Systems/Pay" in r.stdout, r.stdout)
+    print("  ✓ t_summary_line_verify")
+
+
+# ── 筆記 updated 落後:健檢列出加一鍵修(Projects/提交時自動更新筆記日期_計劃)────────────────────────
+def _us_today():
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).astimezone().date().isoformat()
+
+
+def _us_repo():
+    """兩篇筆記都寫 updated 2026-09-11、今天提交(→ 落後);一篇沒有 updated 欄。→ (root, vault)。"""
+    root = _nh_repo()
+    _nh_node(root, "Pay", summary="KEY:a")
+    _nh_node(root, "Ship", summary="KEY:b")
+    nou = root / "docs" / "kg-knowledge" / "Systems" / "NoDate.md"
+    nou.write_text("---\ntype: system\nstatus: doing\nsummary: |-\n  KEY:c\n---\n# NoDate\n", encoding="utf-8")
+    _nh_commit(root, "init")
+    return root, root / "docs" / "kg-knowledge"
+
+
+def _us_updated(vault, rel):
+    import re as _re
+    m = _re.search(r"^updated: (\S+)$", (vault / rel).read_text(encoding="utf-8"), _re.M)
+    return m.group(1) if m else None
+
+
+def t_doctor_updated_stale():
+    """[updated 落後 S1] updated 早於 git 上最後一次提交日期 → doctor 印筆數與那幾篇、附 lumos updated-sync --stale;
+    都沒落後 → 不印。翻紅釘:doctor 不接 _updated_stale_notes → ①紅。"""
+    print("t_doctor_updated_stale")
+    root, v = _us_repo()
+    r = run(v, "doctor")
+    out = r.stdout + r.stderr
+    check("①兩篇落後:印筆數、例子、指令", "updated 落後" in out and "2 篇" in out and "Systems/Pay" in out
+          and "lumos updated-sync --stale" in out, out[-1200:])
+    for n in ("Pay", "Ship"):
+        p = v / "Systems" / f"{n}.md"
+        p.write_text(p.read_text(encoding="utf-8").replace("updated: 2026-09-11", f"updated: {_us_today()}"), encoding="utf-8")
+    _nh_commit(root, "bump")
+    r = run(v, "doctor")
+    check("②都改成今天後:不印", "updated 落後" not in r.stdout + r.stderr, (r.stdout + r.stderr)[-800:])
+    # ③淺複製(只有最近一個提交):日期表全變同一天、判不準 → 不印(代碼審 r1 正確性席 F1)
+    import subprocess as _sp
+    root, v = _us_repo()
+    (root / "README.md").write_text("x\n")
+    _nh_commit(root, "later")
+    sh = Path(tempfile.mkdtemp(prefix="gctl-us-shallow-")) / "c"
+    _sp.run(["git", "clone", "-q", "--depth", "1", f"file://{root}", str(sh)], capture_output=True)
+    r = run(sh / "docs" / "kg-knowledge", "doctor")
+    check("③淺複製:不印 updated 落後", "updated 落後" not in r.stdout + r.stderr, (r.stdout + r.stderr)[-600:])
+    r = run(sh / "docs" / "kg-knowledge", "updated-sync", "--stale", "--dry-run")
+    check("③淺複製:--stale 沒有要改的", "會改" not in r.stdout, r.stdout + r.stderr)
+    # ④只落後一天(跨午夜才提交):不算(代碼審 r1 正確性席 F3)
+    import datetime as _dt, os as _os
+    root, v = _us_repo()
+    y = (_dt.date.fromisoformat(_us_today()) - _dt.timedelta(days=1)).isoformat()
+    for n in ("Pay", "Ship"):
+        q = v / "Systems" / f"{n}.md"
+        q.write_text(q.read_text(encoding="utf-8").replace("updated: 2026-09-11", f"updated: {y}"), encoding="utf-8")
+    _nh_git(root, "add", "-A")
+    _sp.run(["git", "-C", str(root), "commit", "-qm", "y"], capture_output=True, env=dict(_os.environ, GIT_COMMITTER_DATE=f"{_us_today()}T12:00:00"))
+    r = run(v, "doctor")
+    check("④updated 只比 git 日期早一天:不算落後", "updated 落後" not in r.stdout + r.stderr, (r.stdout + r.stderr)[-600:])
+    print("  ✓ t_doctor_updated_stale")
+
+
+def t_updated_sync_stale():
+    """[updated 落後 S2] updated-sync --stale → 落後的每篇改成今天、其他欄位與正文不動;沒有 updated 欄的不加;已是今天的跳過。
+    翻紅釘:改成 git 日期而非今天 → ①紅;沒有 updated 也加 → ③紅。"""
+    print("t_updated_sync_stale")
+    _root, v = _us_repo()
+    before = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    r = run(v, "updated-sync", "--stale")
+    check("①兩篇改成今天", r.returncode == 0 and _us_updated(v, "Systems/Pay.md") == _us_today()
+          and _us_updated(v, "Systems/Ship.md") == _us_today(), r.stdout + r.stderr)
+    after = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    check("②只動 updated 那一行", [ln for ln in before.split("\n") if not ln.startswith("updated:")]
+          == [ln for ln in after.split("\n") if not ln.startswith("updated:")], after[:300])
+    check("③沒有 updated 欄的不加(--stale 本來就不挑它)", _us_updated(v, "Systems/NoDate.md") is None,
+          (v / "Systems" / "NoDate.md").read_text())
+    r = run(v, "updated-sync", "Systems/NoDate")
+    check("③b直接指定沒有 updated 欄的那篇:跳過、不加", r.returncode == 0 and "沒有 updated 欄或是空的" in r.stdout
+          and _us_updated(v, "Systems/NoDate.md") is None, r.stdout + r.stderr)
+    r = run(v, "updated-sync", "--stale")
+    check("④再跑一次(都已是今天、但還沒提交):照樣改成今天、不報錯", r.returncode == 0, r.stdout + r.stderr)
+    print("  ✓ t_updated_sync_stale")
+
+
+def t_updated_sync_nodes():
+    """[updated 落後 S3] 指定節點只改那一篇;找不到的走近名候選、rc 非 0、其他照改;--dry-run 只印不寫。
+    翻紅釘:找不到就整批停 → ②紅;--dry-run 照寫 → ③紅。"""
+    print("t_updated_sync_nodes")
+    _root, v = _us_repo()
+    r = run(v, "updated-sync", "Systems/Pay")
+    check("①只改指定那篇", r.returncode == 0 and _us_updated(v, "Systems/Pay.md") == _us_today()
+          and _us_updated(v, "Systems/Ship.md") == "2026-09-11", r.stdout + r.stderr)
+    r = run(v, "updated-sync", "Systems/不存在", "Systems/Ship")
+    check("②找不到的走近名候選、rc 非 0、其他照改", r.returncode != 0 and "找不到叫「Systems/不存在」的筆記" in r.stdout + r.stderr
+          and _us_updated(v, "Systems/Ship.md") == _us_today(), r.stdout + r.stderr)
+    _root, v = _us_repo()
+    r = run(v, "updated-sync", "--stale", "--dry-run")
+    check("③--dry-run:印會改哪幾篇、不寫", r.returncode == 0 and "Systems/Pay" in r.stdout
+          and _us_updated(v, "Systems/Pay.md") == "2026-09-11", r.stdout + r.stderr)
+    r = run(v, "updated-sync")
+    check("④沒給節點也沒給 --stale:rc2", r.returncode == 2, r.stdout + r.stderr)
+    # ⑤一篇寫入時丟例外:其他照改、rc 非 0(代碼審 r2 回歸席 F1)
+    m = _load_lumos_inproc()
+    import io, contextlib
+    _root2, v2 = _us_repo()
+    orig = m.cmd_set
+
+    def _boom(env, rel, key, value):
+        if rel.endswith("Pay.md"):
+            raise RuntimeError("測試:寫入失敗")
+        return orig(env, rel, key, value)
+    m.cmd_set = _boom
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = m.cmd_updated_sync(m.Env(v2), ["Systems/Pay", "Systems/Ship"])
+    finally:
+        m.cmd_set = orig
+    check("⑤一篇丟例外:其他照改、rc 非 0、講原因", rc != 0 and _us_updated(v2, "Systems/Ship.md") == _us_today()
+          and "測試:寫入失敗" in buf.getvalue(), buf.getvalue())
+    # ⑥updated 是不存在的日期:當成落後列出(代碼審 r2 回歸席 F2)
+    _root3, v3 = _us_repo()
+    q = v3 / "Systems" / "Pay.md"
+    q.write_text(q.read_text(encoding="utf-8").replace("updated: 2026-09-11", "updated: 2026-02-30"), encoding="utf-8")
+    _nh_commit(_root3, "bad date")
+    r = run(v3, "updated-sync", "--stale", "--dry-run")
+    check("⑥updated 是不存在的日期:列成要改", "會改 Systems/Pay" in r.stdout, r.stdout + r.stderr)
+    print("  ✓ t_updated_sync_nodes")
+
+
 def _rt_events(root):
     return [e for e in _ns_gov(root) if e.get("gate") == "drift-check" and e.get("check") == "retire"]
 
@@ -31205,7 +33175,7 @@ def t_slots_doctor_reminders():
     def gl(vault, evs):
         (vault.parent / ".governance-log.jsonl").write_text(
             "".join(_j.dumps({"ts": t, "gate": g, "kind": k}) + "\n" for t, g, k in evs), encoding="utf-8")
-    old = [("2026-07-01T00:00:00+00:00", "note-shape", "blocked")]
+    old = [("2026-07-01T00:00:00+00:00", "note-shape", "blocked"), ("2026-07-02T00:00:00+00:00", "doctor-run", "ran")]   # 暖機要兩筆舊紀錄
     recent = [(f"2026-09-{d:02d}T00:00:00+00:00", "note-shape", "blocked") for d in range(20, 26)]
     rules = ("  RULE:甲該撤 [依據:人] [since:2026-06-01] [retire:度量 note-shape.blocked >= 5 近4週]\n"
              "  RULE:乙沒到 [依據:人] [since:2026-06-01] [retire:度量 note-shape.blocked >= 50 近4週]\n"
@@ -31287,7 +33257,8 @@ def t_slots_doctor_reminders_edges():
              "  RULE:己小於 [依據:人] [since:2026-06-01] [retire:度量 note-shape.blocked < 6 近4週]\n")
     write(v, "Systems/M.md", "type: system\nstatus: doing\nsummary: |-\n" + rules, body="# M\n")
     evs = ["2026-07-01T00:00:00+00:00"] + [f"2026-09-{d:02d}T00:00:00" for d in range(20, 26)]   # 近 6 筆不帶時區
-    bad = ['{"ts": "9999-12-31T23:59:59", "gate": "note-shape", "kind": "blocked"}', "not json"]
+    bad = ['{"ts": "9999-12-31T23:59:59", "gate": "note-shape", "kind": "blocked"}', "not json",
+           '{"ts": "2026-07-02T00:00:00+00:00", "gate": "doctor-run", "kind": "ran"}']   # 最後一筆:暖機要兩筆舊紀錄
     (v.parent / ".governance-log.jsonl").write_text(
         "".join(_j.dumps({"ts": t, "gate": "note-shape", "kind": "blocked"}) + "\n" for t in evs) + "\n".join(bad) + "\n",
         encoding="utf-8")
@@ -32372,7 +34343,9 @@ SKIPPED_NAMES = []   # r1 代碼審折入:跳過只記總數的話,「換掉哪�
 # ★不要為了遷就最慢那支把全域上限拉高★——那會讓真的卡死也要等到那個上限才被打斷,
 # 等於把偵測能力送掉。實測(2026-08-22 本機):t_ci_wait 132.3s、次慢 25.8s,
 # 所以全域 180s 對「一般測試」有 7x 餘裕,只有 t_ci_wait 需要單獨放寬。
-TIMEOUT_OVERRIDE = {"t_ci_wait": 450}          # 132.3s → 餘裕 3.4x
+TIMEOUT_OVERRIDE = {"t_ci_wait": 450,          # 132.3s → 餘裕 3.4x
+                    # 本機約 105s;CI 機器慢約一倍,PR #7、#8 都在 CI 超過 180s 被砍(斷言全過),連重跑也紅
+                    "t_prepush_docs_and_light_run_subset": 360}
 
 
 class TestTimeout(Exception):
@@ -32594,8 +34567,9 @@ def t_enforcement_summary_excludes_unknown():
     # 一律 unknown(不適用,不是壞;入口 hook 才不會對沒裝 Codex 的機器每 session 唸)
     codex_layers = ["agents-md", "codex-agent", "codex-cli", "codex-sessionstart-ci-status-hook", "codex-subagentstart-dispatch-lens-hook", "codex-session-entry-hook",
                     "codex-stop-graph-sync-hook", "codex-pretooluse-impact-hook", "codex-skills"]
-    check("enforcement: unknown 恰=vendored+遠端+Codex 不適用八列", unknown_layers == sorted(["required-status-check", "vendored-cli"] + codex_layers), str(unknown_layers))
-    check("enforcement: n_unknown 恰 11", n_unknown == 11, f"{n_unknown}")
+    # 2026-10-05 Lumos事件帳:fixture 沒有事件帳資料夾 → claude-event-ledger 也是 unknown(沒裝外掛不算壞)
+    check("enforcement: unknown 恰=vendored+遠端+Codex 不適用八列+事件帳", unknown_layers == sorted(["required-status-check", "vendored-cli", "claude-event-ledger"] + codex_layers), str(unknown_layers))
+    check("enforcement: n_unknown 恰 12", n_unknown == 12, f"{n_unknown}")
     check("enforcement: 四 hook+pre-commit+pre-push+python+ci 共 8 active", n_active == 8, f"active={n_active} rows={[(r['layer'],r['status']) for r in rows]}")
     check("enforcement: total = 非unknown列數", n_total == len(rows) - n_unknown, f"total={n_total} rows={len(rows)}")
 
@@ -32607,7 +34581,7 @@ def t_enforcement_never_raises_on_missing():
     rows = m.enforcement_status(root=bad, home=bad)
     # r1 審:別留 >=8 的鬆口,釘死列數(5 hook+pre-commit+pre-push+python+vendored+ci+anchor+required = 12;2026-09-03 加 dispatch-lens;
     # 2026-09-04 Codex完全支援 S0 加 9 列:codex-hook×5+codex-cli+claude-skills+codex-skills+agents-md = 21)
-    check("enforcement: 缺目錄不炸、回恰 23 列(d6 加 codex-agent;09-14 加記憶過期清掃)", isinstance(rows, list) and len(rows) == 23, f"{len(rows)}: {[r['layer'] for r in rows]}")
+    check("enforcement: 缺目錄不炸、回恰 24 列(d6 加 codex-agent;09-14 加記憶過期清掃;10-05 加 claude-event-ledger)", isinstance(rows, list) and len(rows) == 24, f"{len(rows)}: {[r['layer'] for r in rows]}")
 
 
 def _isolate_environment():
@@ -32658,6 +34632,10 @@ def _isolate_environment():
     os.environ["USERPROFILE"] = str(home)
     # CODEX_HOME 若在開發機上設過,會繞過假家目錄直接打到真的 ~/.codex
     os.environ.pop("CODEX_HOME", None)
+    # 2026-10-05 Lumos事件帳 S10:同一個理由——CLAUDE_CONFIG_DIR 會繞過假家目錄打到真的 Claude 設定;
+    # 再加一道開關,讓 install / uninstall 的外掛步驟在測試裡整段略過(要測外掛的那幾支自己取消、放假的 claude)
+    os.environ.pop("CLAUDE_CONFIG_DIR", None)
+    os.environ["LUMOS_SKIP_CLAUDE_PLUGIN"] = "1"
     # ★LUMOS_HOME 不是使用者家目錄,是「lumos 來源 repo 在哪」★——一開始我把它也設成假家目錄,
     #   結果有支測試找不到來源就跳過了(跑得到變跑不到=覆蓋悄悄少掉,是比 skip 數字才發現)。
     #   它的預設值是 ~/harness/lumos-toolchain,家目錄一換成假的那條路就斷了。
@@ -33100,6 +35078,153 @@ def t_s1_seat_check():
     # e) dispatch 讀不到=rc2(壞輸入 fail loud,非觀測靜默)
     r = run(v, "seat-check", str(rep_ok), "--dispatch", str(d / "不存在.json"))
     check("dispatch 缺檔=rc2", r.returncode == 2, str(r.returncode))
+
+
+
+def t_s1_seat_check_bad_dispatch():
+    """合法 JSON 不等於可用派工單；普通／最佳化 CLI 都在讀材料前回 rc2。"""
+    print("t_s1_seat_check_bad_dispatch")
+    import json as _j
+    v = mkvault()
+    d = v.parent / "seat-shape"
+    d.mkdir()
+    report = d / "report.md"
+    report.write_text("引句:「這句有足夠中文字但是不在材料範圍」。\n", encoding="utf-8")
+    material = d / "材料 有空白.md"
+    material.write_text("有效材料內容。\n", encoding="utf-8")
+    ledger = d / "ledger.jsonl"
+    before = b'{"previous":true}\n'
+    cases = [(x, "dispatch") for x in [None, [], True, 1, "dispatch"]]
+    cases += [({"materials": x}, "materials") for x in [False, 0, "", {}, {"bad": "shape"}]]
+    cases += [({"materials": [x]}, "materials[0]")
+              for x in [None, False, 1, [], {}, "", "nul\x00path"]]
+    cases += [({"materials": [str(material), {}]}, "materials[1]")]
+    cases += [({"materials": ["\ud800"]}, "materials[0]"),
+              ({"materials": [str(material), "\udc00"]}, "materials[1]")]
+    for i, (value, field) in enumerate(cases):
+        dispatch = d / "dispatch.json"
+        dispatch.write_text(_j.dumps(value, ensure_ascii=True), encoding="utf-8")
+        check(f"JSON 已成功解析且保留現場形態 {i}", _j.loads(dispatch.read_text()) == value
+              and report.is_file() and material.is_file())
+        for optimized in (False, True):
+            ledger.write_bytes(before)
+            args = [sys.executable, *(["-O"] if optimized else []), GRAPHCTL,
+                    "--vault", str(v), "seat-check", str(report), "--dispatch", str(dispatch),
+                    "--ledger", str(ledger), "--json"]
+            r = subprocess.run(args, capture_output=True, text=True, timeout=15)
+            check(f"壞派工形態 {i} optimized={optimized} 是輸入錯誤 rc2", r.returncode == 2,
+                  str(r.returncode) + r.stderr[-180:])
+            check(f"壞派工形態 {i} optimized={optimized} 無 traceback 或假觀測 JSON",
+                  "Traceback" not in r.stderr and not r.stdout.strip()
+                  and "擋下:" in r.stderr and field in r.stderr,
+                  r.stdout[:100] + r.stderr[-180:])
+            check(f"壞派工形態 {i} optimized={optimized} 不寫越界帳", ledger.read_bytes() == before)
+
+
+def t_s1_seat_check_valid_dispatch():
+    """空材料豁免與實際觀測不變，不把漏材料／引句越界升成阻擋。"""
+    print("t_s1_seat_check_valid_dispatch")
+    import json as _j
+    v = mkvault()
+    d = v.parent / "seat-valid"
+    d.mkdir()
+    material = d / "材料 有空白.md"
+    material.write_text("這句有效的引用來自實際被審材料。\n", encoding="utf-8")
+    report = d / "report.md"
+    report.write_text("材料 有空白.md\n引句:「這句有效的引用來自實際被審材料」。\n", encoding="utf-8")
+    dispatch = d / "dispatch.json"
+    for value in ({}, {"materials": None}, {"materials": []}):
+        dispatch.write_text(_j.dumps(value), encoding="utf-8")
+        r = run(v, "seat-check", str(report), "--dispatch", str(dispatch), "--json")
+        check("合法空材料保留 rc0 豁免", r.returncode == 0 and _j.loads(r.stdout)["vacuous"], r.stderr)
+    dispatch.write_text(_j.dumps({"round": "r1", "seat": "s1", "materials": [str(material)]},
+                                ensure_ascii=False), encoding="utf-8")
+    r = run(v, "seat-check", str(report), "--dispatch", str(dispatch), "--json")
+    out = _j.loads(r.stdout)
+    check("含空白中文路徑的實際材料正常對帳", r.returncode == 0 and not out["vacuous"]
+          and not out["unreported"] and not out["out_of_scope"], r.stdout)
+    report.write_text("引句:「這句是越界引言因為不在被審材料裡」。\n", encoding="utf-8")
+    ledger = d / "ledger.jsonl"
+    r = run(v, "seat-check", str(report), "--dispatch", str(dispatch), "--ledger", str(ledger), "--json")
+    out = _j.loads(r.stdout)
+    check("有效派工的漏報及越界仍 rc0 觀測", r.returncode == 0
+          and out["unreported"] == [str(material)] and len(out["out_of_scope"]) == 1, r.stdout)
+    row = _j.loads(ledger.read_text())
+    check("有效越界仍寫既有帳本欄位", row["round"] == "r1" and row["seat"] == "s1"
+          and row["quote"] == out["out_of_scope"][0])
+
+
+
+def t_s1_seat_check_surrogateescape_dispatch():
+    """可編碼 surrogateescape 路徑依舊只觀測；材料缺失不升成輸入錯誤。"""
+    print("t_s1_seat_check_surrogateescape_dispatch")
+    import json as _j
+    v = mkvault()
+    d = v.parent / "seat-surrogateescape"
+    d.mkdir()
+    name = _os_mod.fsdecode(b"material-\x80.md")
+    material = d / name
+    present = d / "present.md"
+    present.write_text("這句合法引用確實來自實際存在的材料。\n", encoding="utf-8")
+    # macOS APFS 不一定准許非 UTF-8 檔名字節；材料缺失本來就只觀測。
+    check("現場路徑可編碼、另一份材料存在且測試路徑缺失",
+          "\udc80" in name and _os_mod.fsencode(name) == b"material-\x80.md"
+          and present.is_file() and not material.exists())
+    report, dispatch = d / "report.md", d / "dispatch.json"
+    report.write_text("present.md\n引句:「這句合法引用確實來自實際存在的材料」。\n", encoding="utf-8")
+    dispatch.write_text(_j.dumps({"materials": [str(present), str(material)]}, ensure_ascii=True), encoding="utf-8")
+    child_env = dict(_os_mod.environ, PYTHONIOENCODING="utf-8:surrogateescape")
+    for optimized in (False, True):
+        args = [sys.executable, *(["-O"] if optimized else []), GRAPHCTL,
+                "--vault", str(v), "seat-check", str(report), "--dispatch", str(dispatch), "--json"]
+        # JSON 輸出的路徑可能帶原始檔名字節；二進位收貨再採同樣的 surrogateescape 還原。
+        result = subprocess.run(args, capture_output=True, env=child_env, timeout=15)
+        stdout = result.stdout.decode("utf-8", errors="surrogateescape")
+        out = _j.loads(stdout) if result.returncode == 0 else {}
+        check(f"可編碼 surrogateescape optimized={optimized} 保持合法觀測",
+              result.returncode == 0 and out.get("vacuous") is False, repr(result.stderr[-180:]))
+        check(f"可編碼 surrogateescape optimized={optimized} 真實材料錨定",
+              out.get("unreported") == [str(material)] and out.get("out_of_scope") == [], repr(stdout[-180:]))
+
+
+
+def t_s1_seat_check_preflight_order():
+    """真 cmd_seat_check 在尾端壞項前不可讀第一份材料；用可觀測讀取取代 FIFO。"""
+    print("t_s1_seat_check_preflight_order")
+    import ast as _ast, json as _j, io as _io
+    from contextlib import redirect_stderr, redirect_stdout
+    from unittest.mock import patch
+    v = mkvault()
+    report, dispatch, material = (v.parent / n for n in ("report.md", "dispatch.json", "material.md"))
+    report.write_text("引句:「這句是合法格式卻沒有對應材料的引文」。\n", encoding="utf-8")
+    material.write_text("先讀材料會被現場觀測到。\n", encoding="utf-8")
+    dispatch.write_text(_j.dumps({"materials": [str(material), {}]}), encoding="utf-8")
+    tree = _ast.parse(Path(GRAPHCTL).read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body if isinstance(n, _ast.FunctionDef) and n.name == "cmd_seat_check")
+    original_read = Path.read_text
+    for tail in ({}, "\ud800"):
+        dispatch.write_text(_j.dumps({"materials": [str(material), tail]}), encoding="utf-8")
+        check("現場直接取真入口且首項有效、尾項是錯形態或不可編碼字串",
+              isinstance(fn, _ast.FunctionDef) and material.is_file()
+              and _j.loads(dispatch.read_text())["materials"][1] == tail)
+        for optimized in (0, 1):
+            reads = []
+            def observed_read(path, *args, observed_reads=reads, **kwargs):
+                observed_reads.append(path)
+                return original_read(path, *args, **kwargs)
+            env = {"Path": Path, "sys": sys, "os": _os_mod, "_quote_norm": lambda text: text,
+                   "_quote_rows": lambda *_: []}
+            exec(compile(_ast.Module(body=[fn], type_ignores=[]), GRAPHCTL, "exec", optimize=optimized), env)
+            stderr, stdout = _io.StringIO(), _io.StringIO()
+            with patch.object(Path, "read_text", observed_read), redirect_stderr(stderr), redirect_stdout(stdout):
+                try:
+                    rc = env["cmd_seat_check"](str(report), str(dispatch), as_json=True)
+                except (TypeError, AttributeError, UnicodeEncodeError) as error:
+                    rc = "uncaught " + type(error).__name__
+            check(f"optimized={optimized} 確實讀到派工單後回 rc2", dispatch in reads and rc == 2, str(rc))
+            check(f"optimized={optimized} 尾端壞項前未讀首項材料", material not in reads, str(reads))
+            check(f"optimized={optimized} 索引診斷且無觀測輸出",
+                  "materials[1]" in stderr.getvalue() and not stdout.getvalue(), stderr.getvalue()[-200:])
 
 
 
@@ -34806,6 +36931,39 @@ def t_cap_hint_declining_major_human_decides():
 
 
 @_cap_real_cutoff
+def t_cap_hint_at_cap_shows_cap_decision():
+    """審查跑滿回顧〈三〉3、S19:代碼審 major 全折後處置閘就過、loop next 不走 cap-reached,所以 [cap-hint] 到上限時要帶「人裁:」那行。
+    那行的內容只由 _cap_retro_next_lines 決定(治理帳壞、已有人裁、回顧狀態都在那裡判);_cap_hint_lines 只決定要不要叫人記
+    (ask):到上限而提示不是「可以停」,或 loop next 判到 cap-reached;沒給 env 判不了就不印。"""
+    m = _load_lumos()
+    calls = []
+
+    def fake(env, loop_id, repo=None, ask=True):
+        calls.append(ask)
+        return ["ASK " + loop_id] if ask else []
+    saved = m._cap_retro_next_lines
+    m._cap_retro_next_lines = fake
+    try:
+        for hint_rows, phase, want in [([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])], None, True),     # 由人裁
+                                       ([(3, "major", [3]), (2, "major", [2]), (3, "major", [3])], None, True),     # 換做法
+                                       ([(5, "major", [5]), (3, "major", [3]), (1, "minor", [1])], None, False),    # 可以停
+                                       ([(5, "major", [5]), (3, "major", [3]), (1, "minor", [1])], "cap-reached", True)]:
+            h = m._cap_hint(_cap_rows(hint_rows))
+            txt = "\n".join(m._cap_hint_lines(h, loop_id="code-x y", env=object(), phase=phase))
+            check(f"到上限提示 {h and h['hint']}/{phase} 叫人記人裁={want}", ("人裁:ASK code-x y" in txt) == want, txt)
+        h = m._cap_hint(_cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])]))
+        calls.clear()
+        txt = "\n".join(m._cap_hint_lines(h, loop_id="code-x y"))
+        check("沒給 env:判不了,不印人裁那行也不呼叫", "人裁:" not in txt and not calls, txt)
+        h = m._cap_hint(_cap_rows([(21, "major", [21])]))
+        calls.clear()
+        m._cap_hint_lines(h, loop_id="code-x y", env=object())
+        check("沒到上限(只有熔斷):不呼叫", not calls, repr(calls))
+    finally:
+        m._cap_retro_next_lines = saved
+
+
+@_cap_real_cutoff
 def t_cap_hint_vacuous_round_counts_zero():
     """[S7] 沒彙總帳而各席 findings 全 0 → 折 0;有人報了條數卻沒彙總帳 → 沒記處置、判不了。"""
     h = _cap_hint_of(_cap_rows([(4, "major", [4]), (2, "major", [2]), (None, "clean", [0, 0])]))
@@ -35893,8 +38051,7 @@ def t_doctor_revisit_reminder():
     check("advice 指令獨立行(不帶 --code:預設排碼恰排掉討論字)",
           'lumos search "REVISIT:"' in r.stdout, r.stdout[-400:])
     r2 = run(v, "doctor", "--ci")
-    gl = (v.parent / ".governance-log.jsonl")
-    evs = [_j.loads(l) for l in gl.read_text(encoding="utf-8").splitlines() if l.strip()]
+    evs = _gov_events_all(v.parent)      # check-revisit/warned 寫本機帳
     rv = [e for e in evs if e.get("gate") == "check-revisit"]
     check("★紅釘⑥:--ci 落 gov event,nodes=到期筆記 stem(nags 牙的鍵)★",
           rv and rv[-1]["kind"] == "warned" and rv[-1]["nodes"] == ["回訪甲_計劃"], str(rv[-1:]))
@@ -35908,6 +38065,7 @@ def t_doctor_revisit_reminder():
           r3.stdout[-400:])
     # ⑦ 接電鏈:偽造 15 天前的首喊+剛才的 --ci 喊(同 gate 同 node),nags 14 應列出
     first = (_dt.datetime.now().astimezone() - _dt.timedelta(days=15)).isoformat(timespec="seconds")
+    gl = v.parent / ".governance-local.jsonl"      # check-revisit/warned 寫在本機帳;gov --nags 兩本一起讀
     rows = gl.read_text(encoding="utf-8").splitlines()
     with open(gl, "w", encoding="utf-8") as f:
         f.write(_j.dumps({"ts": first, "commit": "x", "gate": "check-revisit", "kind": "warned",
@@ -36975,20 +39133,28 @@ def t_codex_s1_lens_arm_claim():
     # 不是鏡頭內容。原本四次武裝都用 <upstream>..HEAD,而算一次鏡頭的成本跟「本機比遠端多幾個 commit」
     # 成正比——那天本機多 5 個 commit、73 個檔,單次 47 秒,四次就撞破 180 秒上限。也就是說:**你要推的
     # 東西越多,這支測試越容易在 pre-push 當場紅**,而 pre-push 正是它唯一會被跑到的時機。改法:只留
-    # 第一次用真範圍(證明真內容跑得通),其餘三次用 <upstream>..<upstream> 這個空 diff——一樣過 base
+    # 第一次用真範圍(證明真的提交範圍跑得通;範圍取主線上最小的提交,內容小、不保證有鑑別力),其餘三次用 <upstream>..<upstream> 這個空 diff——一樣過 base
     # 必須在主線的守衛,一樣走完整的武裝/認領/過期/並發路徑,但不必重算鏡頭(實測 1.4 秒)。
     cheap = f"{ml}..{ml}"
+    # 真範圍取主線上改動最小的那一個提交(兩端都在主線上):用「主線..HEAD」的話範圍就是當下分支的改動,
+    # 改到讓鏡頭算很久的東西時這支就逾時(2026-10-06 合併請求 #14,Projects/鏡頭測試範圍固定_計劃)
+    _head = _lens_smallest_commit(repo, ml)
+    _base = _sp.run(["git", "-C", str(repo), "rev-parse", "--verify", _head + "~1^{commit}"],
+                    capture_output=True, text=True).stdout.strip() if _head else ""
+    if not (_head and _base):
+        raise _SrcOnly("這個 repo 的歷史不夠長,挑不到主線上的小範圍")
+    rng = f"{_base}..{_head}"
     def lens(*args):
         return _sp.run([sys.executable, GRAPHCTL, "dispatch-lens", *args, "--repo", str(repo)], env=env, capture_output=True, text=True)
     r = lens("--claim", "--json")
     check("s1-arm: 沒武裝 → claim 回 not-armed、rc0", r.returncode == 0 and _j.loads(r.stdout.strip().splitlines()[-1])["reason"] == "not-armed", r.stdout[-100:] + r.stderr[-100:])
-    r = lens("--arm", f"{ml}..HEAD", "--seats", "2")
+    r = lens("--arm", rng, "--seats", "2")
     check("s1-arm: arm 2 席 rc0 且印席數", r.returncode == 0 and "共 2 席" in r.stdout, r.stdout[-200:] + r.stderr[-200:])
     key = hashlib.sha256(str(Path(os.path.realpath(str(repo)))).encode()).hexdigest()[:32]
     d = home / ".cache" / "lumos" / "dispatch-lens" / "armed" / key
     check("s1-arm: armed 目錄=realpath key、2 個 token、meta.json", d.is_dir() and len(list(d.glob("tok-*"))) == 2 and (d / "meta.json").exists(), str(list(d.glob("*")) if d.is_dir() else "no dir"))
     c1 = _j.loads(lens("--claim", "--json").stdout.strip().splitlines()[-1]); c2 = _j.loads(lens("--claim", "--json").stdout.strip().splitlines()[-1]); c3 = _j.loads(lens("--claim", "--json").stdout.strip().splitlines()[-1])
-    check("s1-arm: 兩次認領席次 1、2,文字首行帶 LUMOS-LENS range", c1["seat"] == 1 and c2["seat"] == 2 and c1["text"].startswith(f"LUMOS-LENS range={ml}..HEAD 第 1/2 席"), str((c1["seat"], c2["seat"], (c1["text"] or "")[:60])))
+    check("s1-arm: 兩次認領席次 1、2,文字首行帶 LUMOS-LENS range", c1["seat"] == 1 and c2["seat"] == 2 and c1["text"].startswith(f"LUMOS-LENS range={rng} 第 1/2 席"), str((c1["seat"], c2["seat"], (c1["text"] or "")[:60])))
     check("s1-arm: 第三次 → 歸零已刪,not-armed", c3["reason"] == "not-armed" and not d.exists(), str(c3))
     # TTL 先驗:回溯 ts → expired 且整夾刪
     lens("--arm", cheap, "--seats", "1")
@@ -37082,7 +39248,15 @@ def t_codex_s1_r1_fixes():
     home = Path(_tf.mkdtemp(prefix="gctl-s1r1-")); env = dict(os.environ, HOME=str(home), USERPROFILE=str(home), LUMOS_DISPATCH_LENS_NO_CACHE="1")
     ml = _sp.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "main@{upstream}"], capture_output=True, text=True).stdout.strip() or "main"
     def lens(*a): return _sp.run([sys.executable, GRAPHCTL, "dispatch-lens", *a, "--repo", str(repo)], env=env, capture_output=True, text=True)
-    lens("--arm", f"{ml}..HEAD", "--seats", "3")
+    # 真範圍取主線上改動最小的那一個提交(兩端都在主線上):用「主線..HEAD」的話範圍就是當下分支的改動,
+    # 改到讓鏡頭算很久的東西時這支就逾時(2026-10-06 合併請求 #14,Projects/鏡頭測試範圍固定_計劃)
+    _head = _lens_smallest_commit(repo, ml)
+    _base = _sp.run(["git", "-C", str(repo), "rev-parse", "--verify", _head + "~1^{commit}"],
+                    capture_output=True, text=True).stdout.strip() if _head else ""
+    if not (_head and _base):
+        raise _SrcOnly("這個 repo 的歷史不夠長,挑不到主線上的小範圍")
+    rng = f"{_base}..{_head}"
+    lens("--arm", rng, "--seats", "3")
     import hashlib
     key = hashlib.sha256(str(Path(os.path.realpath(str(repo)))).encode()).hexdigest()[:32]
     dd = home / ".cache" / "lumos" / "dispatch-lens" / "armed" / key
@@ -37113,7 +39287,7 @@ def t_codex_s1_r1_fixes():
           isinstance(_tmo, (int, float)) and 0 < _tmo <= 30 * 0.75,
           f"內層 {_tmo} vs 外層 30(上限應為 22.5)")
     # ⑤ 互斥
-    r = lens("--arm", f"{ml}..HEAD", "--claim")
+    r = lens("--arm", rng, "--claim")
     check("s1-r1⑤: --arm 與 --claim 同給 → rc 2 擋下", r.returncode == 2 and "擋下" in r.stderr + r.stdout, f"rc={r.returncode} {r.stderr[-120:]}")
     lens("--disarm")
 
@@ -37734,7 +39908,8 @@ def t_review_role_changed_files_population():
     check("S7: 測試檔、.md 被剔除", "api/test_new.py" not in files and "README.md" not in files, str(files))
     check("S7: 改名算新路徑", "api/New.py" in files and "api/Old.py" not in files, str(files))
     check("S7: 刪除的檔照樣算、讀起點版本", files.get("web/src/old.ts") == base, str(files))
-    res = m._review_roles(d, base, head)
+    # 此案驗凍結內容，給真 Git 充足預算；期限降級由 file_cap_and_budget 案驗。
+    res = m._review_roles(d, base, head, budget=30)
     check("S7: 刪除的 .ts 連 package.json 一起刪,照樣從起點讀到 vue → 前端",
           res["roles"].get("web/src/old.ts") == "frontend", str(res))
     # 消費專案跑 lumos update:工具檔換新內容、指紋清單同步換新 → 它在範圍內、而且在終點原封不動 → 要剔掉
@@ -37761,7 +39936,8 @@ def t_review_role_reads_head_content_base_config():
     w(".lumos/config.json", _j.dumps({"review_roles": [{"path": "srv/*", "role": "none"}, {"path": "pkg/*", "role": "none"}]}))
     head = c("head")
     (d / "pkg" / "package.json").write_text('{"dependencies": {"fastify": "5"}}', encoding="utf-8")   # 工作樹不同、沒提交
-    res = m._review_roles(d, base, head)
+    # 此案驗凍結內容，給真 Git 充足預算；期限降級由 file_cap_and_budget 案驗。
+    res = m._review_roles(d, base, head, budget=30)
     check("S8: 依終點提交的 package.json(vue)判前端,不理工作樹(fastify)", res["roles"].get("pkg/a.ts") == "frontend", str(res))
     check("S8: 被審分支把宣告改成 none 不算數,照起點的 srv/* → backend", res["roles"].get("srv/x.tsx") == "backend", str(res))
 
@@ -37856,6 +40032,21 @@ def t_dispatch_lens_role_cards_survive_graph_failure():
         check(f"S10: 掛鉤在「{name}」分支照附角色卡" + ("(在超時說明之後)" if rc_ == 5 else ""), ok, o[:300])
 
 
+def t_review_role_zero_budget_no_git():
+    """沒有角色時間預算就不能先做 Git 讀取，否則零預算仍會拖住鏡頭。"""
+    from unittest.mock import patch
+    m = _load_lumos()
+    called = []
+    def record(*args, **kwargs):
+        called.append(args)
+        return None
+    with patch.object(m, '_lens_git', record), patch.object(m, '_review_role_changed_files', record):
+        res = m._review_roles(Path('/nonexistent'), 'base', 'head', budget=0)
+    check('零預算不啟動 Git 或選檔', not called, str(called))
+    check('零預算仍回可呈現的超時結果', isinstance(res, dict) and res['timed_out']
+          and res['counts']['frontend'] == 0 and res['counts']['backend'] == 0, str(res))
+
+
 def t_review_role_file_cap_and_budget():
     """[S11] 超過讀取上限:後面的只看副檔名並印說明;時間預算用完:不讀內容、照樣回。"""
     import time as _t
@@ -37866,7 +40057,8 @@ def t_review_role_file_cap_and_budget():
         w(f"app/S{i}.kt", "import androidx.compose.runtime.Composable\n")
     head = c("kt")
     m._ROLE_READ_CAP = 2
-    res = m._review_roles(d, base, head)
+    # 此段驗讀取數上限，給真 Git 足夠時間；下段仍驗零預算的真時間上限。
+    res = m._review_roles(d, base, head, budget=30)
     check("S11: 超過上限 → capped=1、多出的那支判不出、說明行在", res["capped"] == 1 and res["counts"]["frontend"] == 2
           and "超過上限" in m._review_role_text(res), str(res))
     t0 = _t.monotonic()
@@ -38243,8 +40435,7 @@ def t_delguard_logs_ok_too():
     g("init", "-q"); g("add", "-A"); g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i")
     (root / "src" / "m.py").write_text("def new_helper():\n    return 1\n", encoding="utf-8"); g("add", "-A")
     r = _sp.run([sys.executable, GRAPHCTL, "delguard", "--staged"], cwd=str(root), capture_output=True, text=True, timeout=120)
-    log = vault / ".." / ".governance-log.jsonl"
-    log = (root / "docs" / ".governance-log.jsonl")
+    log = (root / "docs" / ".governance-local.jsonl")   # delguard/ok 是例行觀察,寫本機帳;degraded 照舊進版控帳
     txt = log.read_text(encoding="utf-8") if log.exists() else ""
     oks = [l for l in txt.splitlines() if '"gate": "delguard"' in l and '"kind": "ok"' in l]
     check("delguard ok 帳: 跑完記一筆 kind=ok(帶 tokens/hits/secs)", r.returncode == 0 and len(oks) == 1 and "tokens=" in oks[0] and "hits=" in oks[0], (r.stdout[-160:], txt[-200:]))
@@ -38269,7 +40460,7 @@ def t_delguard_logs_ok_too():
         j2 = _j.loads(buf.getvalue().strip().splitlines()[-1])
     except Exception:
         j2 = {}
-    txt2 = log.read_text(encoding="utf-8")
+    txt2 = (root / "docs" / ".governance-log.jsonl").read_text(encoding="utf-8")   # degraded 進版控帳
     partial = [l for l in txt2.splitlines() if '"gate": "delguard"' in l and "timeout-partial" in l]
     check("delguard 部分結果: 掃描被 deadline 截斷 → 帳記 degraded reason=timeout-partial 且 --json degraded=true+reason", rc2 == 0 and len(partial) == 1 and j2.get("degraded") is True and j2.get("reason") == "timeout-partial", (str(j2)[:160], txt2[-200:]))
     # 第三輪稽核:gov 呈現層要把同日多筆 delguard 帳折成 ×N(原條件要 detail 為空,永遠折不到)
@@ -38626,6 +40817,168 @@ def t_update_syncs_global_from_fresh_not_stale():
         check("update: 全域 hook 不是那份舊副本", got != stale, "")
     check("update: 專案 vendored hook 也被自癒成新版",
           (proj / hook_rel).read_bytes() == (src / hook_rel).read_bytes(), "")
+
+
+def _upd_dry_fixture(old_agents=None):
+    """update --dry-run 測試共用:臨時工具來源(新範本、新 hook、本 repo 的 scripts/lumos)、
+    消費專案(舊區塊、舊 hook)、隔離的家目錄。回 (src, proj, home, env, mod)。
+    old_agents:None=沒有 AGENTS.md;字串=AGENTS.md 原內容(沒有區塊)。"""
+    import os, subprocess as _sp, shutil
+    from pathlib import Path as _P
+    repo = _P(GRAPHCTL).resolve().parent.parent
+    base = _P(tempfile.mkdtemp(prefix="gctl-upd-dry-"))
+    src, proj, home = base / "src", base / "proj", base / "home"
+    for d in (src / "scripts" / "hooks" / "claude", src / "scripts" / "templates", proj / "scripts" / "hooks" / "claude",
+              proj / "docs" / "p-knowledge" / "Systems", proj / "docs" / "p-knowledge" / "MOC", home):
+        d.mkdir(parents=True, exist_ok=True)
+    for f in ("lumos", "install-graph-toolchain.sh"):
+        shutil.copy2(repo / "scripts" / f, src / "scripts" / f)
+    hook_rel = "scripts/hooks/claude/check-graph-sync.py"
+    shutil.copy2(repo / hook_rel, src / hook_rel)
+    (src / "scripts" / "templates" / "graph-discipline.md").write_text("新版紀律:{{KG}}\n第二行\n", encoding="utf-8")
+    _sp.run(["git", "init", "-q", "."], cwd=str(src))
+    _sp.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], cwd=str(src))
+    _sp.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "src"], cwd=str(src))
+    (proj / "docs" / "p-knowledge" / "MOC" / "index.md").write_text("---\ntype: moc\n---\n# i\n", encoding="utf-8")
+    (proj / hook_rel).write_text("OLD-HOOK\n", encoding="utf-8")
+    shutil.copy2(repo / "scripts" / "lumos", proj / "scripts" / "lumos")
+    mod = _load_lumos()
+    old_block = mod._CLAUDE_START_PREFIX + " -->\n舊版紀律:docs/p-knowledge/\n" + mod._CLAUDE_END
+    (proj / "CLAUDE.md").write_text("# CLAUDE.md\n\n使用者規則\n\n" + old_block + "\n", encoding="utf-8")
+    if old_agents is not None:
+        (proj / "AGENTS.md").write_text(old_agents, encoding="utf-8")
+    _sp.run(["git", "init", "-q", "."], cwd=str(proj))
+    env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
+    env.pop("CODEX_HOME", None)
+    env.pop("LUMOS_HOME", None)
+    return src, proj, home, env, mod
+
+
+def _upd_tree(d, skip_git=True):
+    """目錄底下 {相對路徑: 位元組}(不跟捷徑;skip_git 時略過 .git/)。"""
+    out = {}
+    for p in sorted(Path(d).rglob("*")):
+        rel = p.relative_to(d).as_posix()
+        if skip_git and (rel == ".git" or rel.startswith(".git/")):
+            continue
+        if p.is_file() and not p.is_symlink():
+            out[rel] = p.read_bytes()
+    return out
+
+
+def _upd_run(proj, env, *args):
+    import subprocess as _sp
+    return _sp.run([sys.executable, "scripts/lumos", "update", *args], cwd=str(proj), env=env,
+                   capture_output=True, text=True)
+
+
+def t_update_dry_run_writes_nothing():
+    """[update預覽規範檔變更 S1] update --dry-run:專案(不含 .git)、core.hooksPath、家目錄、工具來源提交編號全都不變。"""
+    import subprocess as _sp
+    src, proj, home, env, _m = _upd_dry_fixture()
+    before = (_upd_tree(proj), _upd_tree(home, skip_git=False),
+              _sp.run(["git", "-C", str(proj), "config", "core.hooksPath"], capture_output=True, text=True).stdout,
+              _sp.run(["git", "-C", str(src), "rev-parse", "HEAD"], capture_output=True, text=True).stdout)
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    after = (_upd_tree(proj), _upd_tree(home, skip_git=False),
+             _sp.run(["git", "-C", str(proj), "config", "core.hooksPath"], capture_output=True, text=True).stdout,
+             _sp.run(["git", "-C", str(src), "rev-parse", "HEAD"], capture_output=True, text=True).stdout)
+    check("①前置:預覽跑完 rc0", r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
+    check("①★專案檔案集合與位元組都不變(不新建 .lumos/vendored.json、docs/.gitignore)★", before[0] == after[0],
+          str(sorted(set(after[0]) ^ set(before[0])))[:300])
+    check("①hooks 路徑設定不變", before[2] == after[2], f"{before[2]!r} → {after[2]!r}")
+    check("①★家目錄一個檔都不變(沒有同步全域 hooks)★", before[1] == after[1], str(sorted(after[1]))[:200])
+    check("①工具來源提交編號不變(不拉)", before[3] == after[3], "")
+    check("①開頭沿用既有預覽格式", "lumos update --dry-run(僅預演,不改動):" in r.stdout, r.stdout[:200])
+
+
+def t_update_dry_run_rule_diff_matches_apply():
+    """[update預覽規範檔變更 S2] 預覽算出的每個目標檔新內容,跟照它印的指令真的套用後位元組一模一樣;
+    會更新、會新建、會接上三種都驗;會更新的檔印完整區塊差異。"""
+    for label, agents in (("新建 AGENTS.md", None), ("接上既有 AGENTS.md", "# AGENTS\n\n我的規則\n")):
+        src, proj, home, env, m = _upd_dry_fixture(old_agents=agents)
+        plan = m._update_rule_plan(src, proj, "p")
+        r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+        check(f"②[{label}] 前置:預覽 rc0", r.returncode == 0, r.stderr[-300:])
+        r2 = _upd_run(proj, env, "--source", str(src), "--no-pull")
+        check(f"②[{label}] 前置:真的套用 rc0", r2.returncode == 0, r2.stderr[-300:])
+        for t, it in plan.items():
+            got = (proj / t).read_bytes() if (proj / t).exists() else None
+            want = it["new_text"].encode("utf-8") if it.get("new_text") is not None else None
+            check(f"②[{label}] ★{t} 預覽算的新內容 == 套用後的位元組★", got == want,
+                  f"status={it.get('status')} got={got[:120] if got else got!r} want={want[:120] if want else want!r}")
+        lines = [ln.strip() for ln in r.stdout.splitlines()]
+        check(f"②[{label}] ★會更新的 CLAUDE.md 印出完整區塊差異,刪與加各自一行(不黏在一起)★",
+              "-舊版紀律:docs/p-knowledge/" in lines and "+新版紀律:docs/p-knowledge/" in lines and "+第二行" in lines,
+              r.stdout[:600])
+        if agents is None:
+            check("②會新建時印出要寫入的內容", "會新建 AGENTS.md" in r.stdout and "新版紀律:docs/p-knowledge/" in r.stdout, r.stdout[:600])
+        else:
+            check("②會接上時印出位置與內容", "會接上 AGENTS.md" in r.stdout and "第一個 # 標題行之後" in r.stdout, r.stdout[:600])
+
+
+def t_update_dry_run_lists_vendored_changes():
+    """[update預覽規範檔變更 S3] 預覽列出的工具檔 == 接著真跑時「結尾自癒」補的檔。"""
+    import re as _re
+    src, proj, home, env, _m = _upd_dry_fixture()
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    listed = set(_re.findall(r"^\s+(?:會換新|會新增):\s*(\S+)$", r.stdout, _re.M))
+    r2 = _upd_run(proj, env, "--source", str(src), "--no-pull")
+    m = _re.search(r"結尾自癒:補齊 installer 漏的 \d+ 檔 → (.+)$", r2.stdout, _re.M)
+    healed = set(x.strip() for x in m.group(1).split(",")) if m else set()
+    check("③前置:預覽列出至少一支工具檔", bool(listed), r.stdout[:600])
+    check("③★預覽清單 == 真跑自癒清單★", listed == healed, f"listed={sorted(listed)} healed={sorted(healed)}")
+
+
+def t_update_dry_run_no_rule_change():
+    """[update預覽規範檔變更 S4] 全部不變 → 「這次 update 不會改規範檔」;只差版本號 → 「只更新版本號」。"""
+    src, proj, home, env, m = _upd_dry_fixture(old_agents=None)
+    _upd_run(proj, env, "--source", str(src), "--no-pull")
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    check("④套用過後再預覽:不會改規範檔", "這次 update 不會改規範檔" in r.stdout, r.stdout[:600])
+    cm = proj / "CLAUDE.md"
+    txt = cm.read_text(encoding="utf-8")
+    start = m._START_TEMPLATE.format(version=m.LUMOS_VERSION)
+    cm.write_text(txt.replace(start, m._START_TEMPLATE.format(version="0.0.0-old")), encoding="utf-8")
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    check("④只差版本號:標「只更新版本號」,不說不會改", "只更新版本號" in r.stdout and "這次 update 不會改規範檔" not in r.stdout,
+          r.stdout[:600])
+
+
+def t_update_dry_run_source_repo():
+    """[update預覽規範檔變更 S5] 在工具來源 repo 自身預覽:只預覽紀律區塊、不寫檔;標記壞掉回 2(跟真的套用一致)。"""
+    import shutil
+    src, proj, home, env, m = _upd_dry_fixture()
+    (src / "docs" / "s-knowledge" / "MOC").mkdir(parents=True)
+    (src / "docs" / "s-knowledge" / "MOC" / "index.md").write_text("---\ntype: moc\n---\n# i\n", encoding="utf-8")
+    (src / "CLAUDE.md").write_text("# CLAUDE.md\n\n舊規則\n", encoding="utf-8")
+    before = {t: (src / t).read_bytes() for t in ("CLAUDE.md",)}
+    import subprocess as _sp
+    r = _sp.run([sys.executable, "scripts/lumos", "update", "--dry-run", "--source", str(src)], cwd=str(src), env=env,
+                capture_output=True, text=True)
+    check("⑤來源 repo 預覽 rc0", r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
+    check("⑤只預覽紀律區塊(沒有工具檔清單)", "會接上 CLAUDE.md" in r.stdout and "工具檔" not in r.stdout, r.stdout[:600])
+    check("⑤★CLAUDE.md 不變、沒新建 AGENTS.md★", (src / "CLAUDE.md").read_bytes() == before["CLAUDE.md"]
+          and not (src / "AGENTS.md").exists(), "")
+    (src / "CLAUDE.md").write_text("# CLAUDE.md\n\n" + m._CLAUDE_START_PREFIX + " -->\n半壞\n", encoding="utf-8")
+    r = _sp.run([sys.executable, "scripts/lumos", "update", "--dry-run", "--source", str(src)], cwd=str(src), env=env,
+                capture_output=True, text=True)
+    r_apply = _sp.run([sys.executable, "scripts/lumos", "update", "--source", str(src)], cwd=str(src), env=env,
+                      capture_output=True, text=True)
+    check("⑤★標記壞掉:預覽回 2,跟真的套用一致★", r.returncode == 2 and r_apply.returncode == 2,
+          f"preview={r.returncode} apply={r_apply.returncode} {r.stdout[-200:]}")
+
+
+def t_update_dry_run_edges():
+    """[update預覽規範檔變更 S6] 目標檔不是 UTF-8:印「讀不了」、回 2、不崩潰;結尾套用指令帶 --source 絕對路徑與 --no-pull。"""
+    src, proj, home, env, _m = _upd_dry_fixture()
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    check("⑥★結尾的套用指令帶 --source 絕對路徑與 --no-pull★",
+          f"--source {src.resolve()}" in r.stdout and "--no-pull" in r.stdout.split("套用")[-1], r.stdout[-400:])
+    (proj / "CLAUDE.md").write_bytes("# CLAUDE\n\n".encode("utf-8") + "繁體".encode("big5"))
+    r = _upd_run(proj, env, "--dry-run", "--source", str(src))
+    check("⑥★非 UTF-8:印讀不了、回 2、不崩潰★", r.returncode == 2 and "讀不了" in r.stdout and "Traceback" not in r.stderr,
+          f"rc={r.returncode} {r.stdout[-300:]} {r.stderr[-300:]}")
 
 
 def t_update_unions_bookkeeping_instead_of_blocking():
@@ -39300,11 +41653,8 @@ def _gate_ledger_sandbox():
 
 
 def _gate_rows(root):
-    import json as _json
-    p = Path(root) / "docs" / ".governance-log.jsonl"
-    if not p.exists():
-        return []
-    return [_json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # 版控帳與本機帳合起來、依時間排序(例行觀察寫本機帳,治理帳例行紀錄分流_計劃)
+    return _gov_events_all(Path(root) / "docs")
 
 
 def t_blocked_events_are_never_read_as_markers():
@@ -39619,14 +41969,14 @@ def t_hook_swallowed_timeout_is_not_recorded_as_ok():
         # 真的那支 hook 有沒有在它吞逾時的地方講一聲
         # ★搜尋窗要對準真的那一條吞逾時路徑★:第一版用第一個 `except (subprocess.TimeoutExpired`
         # 當起點,而檔裡不只一處,窗口落在別的地方,報了一個假的紅。
-        # 改成:先確認那個 mark 呼叫存在,再確認它跟「附了超時說明行」那句在同一段。
+        # 改成:先確認那個 mark 呼叫存在,再確認它跟「已附對應說明行」那句在同一段。
         dl = (hookdir / "dispatch-lens-hook.py").read_text(encoding="utf-8")
         check("★派工鏡頭那支要有 mark(\"timeout\") 的呼叫★",
               '_mark("timeout"' in dl, "找不到 mark 呼叫")
         if '_mark("timeout"' in dl:
             i_m = dl.index('_mark("timeout"')
-            check("★而且要落在「附了超時說明行」那一段裡★(不是隨便放一處)",
-                  "超時說明行" in dl[max(0, i_m - 900):i_m + 300], dl[max(0, i_m-400):i_m+200])
+            check("★而且要落在「已附對應說明行」那一段裡★(不是隨便放一處)",
+                  "已附對應說明行" in dl[max(0, i_m - 900):i_m + 300], dl[max(0, i_m-400):i_m+200])
     finally:
         _sh.rmtree(root, ignore_errors=True)
     print("  ✓ t_hook_swallowed_timeout_is_not_recorded_as_ok")
@@ -39647,7 +41997,7 @@ def t_hook_event_write_failure_is_announced():
         _sp.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
         rt = root / "governance" / "runtime"; rt.mkdir(parents=True)
         log = rt / "hook-events.jsonl"; log.write_text("", encoding="utf-8")
-        _os.chmod(log, 0o444)
+        _break_for_write(log)
         probe = root / "p.py"
         probe.write_text(
             "import sys\n"
@@ -39659,7 +42009,6 @@ def t_hook_event_write_failure_is_announced():
         check("★寫不進去要在 stderr 明講★", "telemetry-write-failed" in r.stderr, r.stderr[-300:])
         check("★但 hook 自己的工作不受影響(rc 照舊)★", r.returncode == 0, str(r.returncode))
         check("★訊息要講明本業不受影響★", "不受影響" in r.stderr, r.stderr[-200:])
-        _os.chmod(log, 0o644)
     finally:
         _sh.rmtree(root, ignore_errors=True)
     print("  ✓ t_hook_event_write_failure_is_announced")
@@ -39984,6 +42333,17 @@ def t_gate_blocked_writes_hard_ledger_row():
     print("  ✓ t_gate_blocked_writes_hard_ledger_row")
 
 
+def _break_for_write(path):
+    """讓 path 寫不進去,root 身分也一樣:把檔換成同名資料夾。
+    只改權限(chmod 0o444)在 root 下不生效——root 照寫不誤,「寫不進去」的現場根本造不出來,測試就假紅。
+    開檔追加碰到資料夾一定丟 OSError(IsADirectoryError),跟磁碟滿、權限錯走同一條例外路。"""
+    import os as _os
+    p = Path(path)
+    if p.exists() and not p.is_dir():
+        _os.remove(p)
+    p.mkdir(parents=True, exist_ok=True)
+
+
 def t_gate_ledger_write_failure_does_not_change_verdict():
     """★記帳失敗不得改寫閘的判定★(2026-09-08 #19 S7,r1 外家否決席)。
 
@@ -40000,7 +42360,7 @@ def t_gate_ledger_write_failure_does_not_change_verdict():
     root = _gate_ledger_sandbox()
     try:
         log = root / "docs" / ".governance-log.jsonl"
-        _os.chmod(log, 0o444)          # 帳檔寫不進去
+        _break_for_write(log)          # 帳檔寫不進去
         r = _sp.run([sys.executable, str(lumos), "anchor", "verify", "--repo", str(root)],
                     capture_output=True, text=True, cwd=str(root), timeout=180)
         check("★帳寫不進去,該擋的還是要擋★(不能因為觀測壞了就放行)",
@@ -40009,7 +42369,6 @@ def t_gate_ledger_write_failure_does_not_change_verdict():
               "telemetry-write-failed" in r.stderr, r.stderr[-400:])
         check("★訊息要講明判定不受影響★(免得人以為被擋是記帳造成的)",
               "判定不受影響" in r.stderr, r.stderr[-300:])
-        _os.chmod(log, 0o644)
     finally:
         _sh.rmtree(root, ignore_errors=True)
     print("  ✓ t_gate_ledger_write_failure_does_not_change_verdict")
@@ -45683,7 +48042,7 @@ def t_nodehome_check_gov_events_registered():
     _nh_file(root, "src/a.py", "x = 3\n")
     _nh_git(root, "add", "-A")
     rc, _out = _nh_check(root)
-    evs = [_j.loads(l) for l in (root / "docs" / ".governance-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    evs = _gov_events_all(root / "docs")      # passed 寫本機帳
     check("⑤放行也記一筆(kind=passed)", rc == 0 and any(e.get("gate") == "nodehome-check" and e.get("kind") == "passed" for e in evs), str(evs[-1:])[:300])
 
 
@@ -46264,6 +48623,310 @@ def t_nodehome_diff_route_per_commit():
     _nh_commit(root, "同一個提交改 a、說明寫進 B")
     rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
     check("②同一個提交裡改程式又寫進不是家的節點 → 照擋", rc == 1 and "Systems/B" in out, out[-600:])
+
+
+_NH_TAG_TESTS = ("old", "new", "keep", "drop", "more", "y", "more2", "more3", "head", "fw", "between", "line",
+                 "ex", "ex2", "fence", "fence2", "in_", "in2", "alive")
+
+
+def _nh_tag_repo(extra_tests=()):
+    """只換測試綁定那組的測試專案:python 測試棧,tests/test_b.py 有 test_<名> 這些真測試(綁定要指得到真測試才算只換綁定)。"""
+    root = _nh_repo({"test_profile": "python"})
+    _nh_file(root, "tests/test_b.py", "".join(f"def test_{n}():\n    pass\n\n\n" for n in _NH_TAG_TESTS + tuple(extra_tests)))
+    _nh_file(root, "src/a.py")
+    _nh_file(root, "src/b.py")
+    _nh_node(root, "A", about=["src/a.py"], body="實作在 `src/a.py`。")
+    return root
+
+
+def t_nodehome_test_tag_only_edit_is_not_write_back():
+    """[只換測試綁定不算寫說明 S1][S3] 同一個提交改了程式、另一篇只換測試綁定(新出現的名稱指得到真測試)→ 不算寫說明,
+    寫回落點與「有寫回時改動檔要有家」都不擋。
+    出身:rtb 2026-10-03 改測試名後,另一篇筆記只把 [test:] 換成新名就被擋,測試檔當不了家、沒有合法出口(rtb 第三輪提案 D2)。
+    翻紅釘:內容比對不拿掉綁定 → ①②③⑨紅;新名稱不核對真測試 → ④⑥紅;test-gone 不核對上一版綁過 → ⑤紅。"""
+    print("t_nodehome_test_tag_only_edit_is_not_write_back")
+    root = _nh_tag_repo()
+    _nh_node(root, "B", about=["src/b.py"], summary="KEY:b 的規則 [test:test_old] [test:test_keep]",
+             body="實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test:test_drop]")
+    _nh_commit(root, "init")
+
+    def edit_b(summary, body):
+        _nh_file(root, "src/a.py", "x = 2\n")
+        _nh_node(root, "B", about=["src/b.py"], summary=summary, body=body)
+        _nh_git(root, "add", "-A")
+        return _nh_check(root)
+
+    def reset():
+        _nh_git(root, "reset", "-q")
+        _nh_git(root, "checkout", "-q", "HEAD", "--", ".")
+        _nh_git(root, "clean", "-fdq")
+
+    rc, out = edit_b("KEY:b 的規則 [test:test_new] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_new]\n- [S2] 另一條 [test:test_drop]")
+    check("①B 只把 [test:test_old] 換成真測試 test_new(摘要與正文)→ rc0", rc == 0, out[-800:])
+    reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep] [test:test_more, test_more2]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old] [ Test ：test_y ]\n- [S2] 另一條")
+    check("②多加綁定(逗號清單、大寫鍵與全形冒號)、刪掉一個綁定 → rc0", rc == 0, out[-800:])
+    reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test-gone:test_drop@1a2b3c4]")
+    check("③上一版綁著的 [test:x] 改成 [test-gone:x@提交] → rc0", rc == 0, out[-800:])
+    reset()
+    for val in ("a now retries three times then logs", "test_not_there", "`a long english test name`"):
+        rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                         f"實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old] [test:{val}]\n- [S2] 另一條 [test:test_drop]")
+        check(f"④新加的綁定指不到真測試({val})→ rc1、點名 B", rc == 1 and "Systems/B" in out, out[-800:])
+        reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old] [test-gone:a now retries three times]\n- [S2] 另一條 [test:test_drop]")
+    check("⑤新寫的 [test-gone:] 不是上一版綁過的名稱(一句英文)→ rc1", rc == 1 and "Systems/B" in out, out[-800:])
+    reset()
+    # 代碼審 r3:判定只比最後一段,「說明.真測試名」會被判存在;新名稱只收識別字形狀
+    for val in ("From now on the retry count is three.test_new", "NoSuchClass.test_new", "Cls::test_new", "Cls#test_new"):
+        rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                         f"實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old] [test:{val}]\n- [S2] 另一條 [test:test_drop]")
+        check(f"⑤b 新名稱不是識別字形狀({val})→ rc1", rc == 1 and "Systems/B" in out, out[-800:])
+        reset()
+    # 代碼審 r3:test-gone 的 @ 後面要是提交編號,不是就整個標記算內容
+    for val in ("test_drop@1a2b3c4 now every order needs manager approval", "test_drop@zzzzzzz"):
+        rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                         f"實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test-gone:{val}]")
+        check(f"⑤c test-gone 的 @ 後面不是提交編號({val[:24]})→ rc1", rc == 1 and "Systems/B" in out, out[-800:])
+        reset()
+    for val in ("Every-order-now-needs-manager-approval:test_drop@1a2b3c4", "python:test_drop@1a2b3c4"):
+        rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                         f"實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test-gone:{val}]")
+        check(f"⑤d test-gone 的名稱跟上一版綁的不是整串一致(前綴 {val.split(':')[0][:20]})→ rc1(前綴不核對就能夾帶說明)",
+              rc == 1 and "Systems/B" in out, out[-800:])
+        reset()
+    for val in ("test_drop@1A2B3C4", "test_new@1a2b3c4"):
+        key = "test-gone" if "drop" in val else "test"
+        rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                         f"實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [{key}:{val}]")
+        check(f"⑤e @ 規則({key}:{val})→ rc1(只認小寫十六進位、一般綁定不帶 @)", rc == 1 and "Systems/B" in out, out[-800:])
+        reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_new] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 1 [test:test_new]\n- [S2] 另一條 [test:test_drop]")
+    check("⑥換綁定同時改了一個散文字 → rc1、點名 B", rc == 1 and "Systems/B" in out, out[-800:])
+    reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:a 的新行為是回傳二]\n- [S2] 另一條 [test:test_drop]")
+    check("⑦綁定的值是中文(藏說明)→ rc1", rc == 1 and "Systems/B" in out, out[-800:])
+    reset()
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old] [test:]\n- [S2] 另一條 [test:test_drop]")
+    check("⑧空的綁定標記不算綁定 → rc1", rc == 1 and "Systems/B" in out, out[-800:])
+    reset()
+    # rtb 原情境:同一個提交把測試改名、B 換成新名(新名在這次提交的測試檔裡)
+    _nh_file(root, "tests/test_b.py", (root / "tests" / "test_b.py").read_text(encoding="utf-8").replace("def test_old(", "def test_renamed("))
+    rc, out = edit_b("KEY:b 的規則 [test:test_renamed] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_renamed]\n- [S2] 另一條 [test:test_drop]")
+    check("⑨同一個提交測試改名、B 換成新名 → rc0", rc == 0, out[-800:])
+    reset()
+    # [S3] 改到一支原本就沒家的舊檔:B 只換綁定 → 只提醒沒家,不報「有寫回時每支改動檔都要有家」
+    _nh_file(root, "ui/old.py", "y = 1\n")
+    _nh_commit(root, "舊的沒家檔")
+    _nh_file(root, "ui/old.py", "y = 2\n")
+    rc, out = edit_b("KEY:b 的規則 [test:test_new] [test:test_keep]",
+                     "實作在 `src/b.py`。\n- [S1] 當 b 收到空值時應回 0 [test:test_new]\n- [S2] 另一條 [test:test_drop]")
+    check("⑩改到沒家舊檔+B 只換綁定 → rc0(只提醒)", rc == 0 and "ui/old.py" in out, out[-800:])
+    reset()
+    _nh_node(root, "B", about=["src/b.py"], summary="KEY:b 的規則 [test:test_old] [test:test_keep]",
+             body="實作在 `src/b.py`,綁定寫成 `[test:test_old]`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test:test_drop]")
+    _nh_commit(root, "加一行舉例")
+    _nh_file(root, "ui/old.py", "y = 1\n")
+    _nh_commit(root, "舊檔還原")
+    rc, out = edit_b("KEY:b 的規則 [test:test_old] [test:test_keep]",
+                     "實作在 `src/b.py`,綁定寫成 `[test:test_new]`。\n- [S1] 當 b 收到空值時應回 0 [test:test_old]\n- [S2] 另一條 [test:test_drop]")
+    check("⑪改的是行內程式碼裡舉例的標記 → rc1", rc == 1 and "Systems/B" in out, out[-800:])
+
+
+def t_nodehome_test_tag_strip_edges():
+    """[只換測試綁定不算寫說明 S4] 拿掉綁定的極端寫法:逐行、跟 slot_parse 同一套邊界判法(設計審 r1 三席);
+    空白不壓平,只照 _slot_strip_keys 的規則拿掉標記旁的空白(代碼審 r2 邊界席、正確性席)。
+    翻紅釘:整段跨行掃 → ①②紅;不數方括號層數 → ④紅;不收「只剩清單符號」的行 → ⑤紅;整行壓空白 → ⑬⑭紅。"""
+    print("t_nodehome_test_tag_strip_edges")
+    root = _nh_tag_repo()
+    base_body = ("實作在 `src/b.py`。\n先前提過 ` 這個字元\n舉例寫 `[test:test_ex]` 的格式\n"
+                 "```\n[test:test_fence]\n\n\nx = 1\n```\n- 條款 [不選:放寬 [test:test_in_] 的豁免]\n- [test:test_line]\n"
+                 "- [S1] 參數化 [test:test_x[case-1]]\n    縮排的程式碼 a = 1\n- 第一層\n  - 第二層")
+    _nh_node(root, "B", about=["src/b.py"], body=base_body)
+    _nh_commit(root, "init")
+
+    def try_body(body):
+        _nh_file(root, "src/a.py", "x = 2\n")
+        _nh_node(root, "B", about=["src/b.py"], body=body)
+        _nh_git(root, "add", "-A")
+        rc, out = _nh_check(root)
+        _nh_git(root, "reset", "-q")
+        _nh_git(root, "checkout", "-q", "HEAD", "--", ".")
+        return rc, out
+
+    rc, out = try_body(base_body + "\n[test:This module now retries\nthree times before failing\nand logs each attempt]")
+    check("①跨三行的假標記 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("`[test:test_ex]`", "`[test:test_ex2]`"))
+    check("②前一行落單反引號、下一行行內程式碼裡的舉例被改 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("[test:test_fence]", "[test:test_fence2]"))
+    check("③程式碼圍欄裡的標記被改 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("[test:test_in_]", "[test:test_in2]"))
+    check("④寫在別的欄位值裡的標記被改 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("\n- [test:test_line]", "") + "\n* [test:test_more]\n1. [test:test_more2] [test:test_more3]")
+    check("⑤單獨成行的綁定(清單符號加標記)刪一行、加兩行 → rc0", rc == 0, out[-600:])
+    rc, out = try_body(base_body.replace("test_x[case-1]", "test_x[case-2]"))
+    check("⑥pytest 參數化名稱(方括號,核對不了真測試)換名 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body + " [test:   ]")
+    check("⑦只有空白的值 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body + " [test:`中文的測試說明`]")
+    check("⑧反引號裡是中文 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body + " [test:" + "a" * 201 + "]")
+    check("⑨值超過 200 字 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body + "\n說明 [test:test_unclosed 這裡沒收尾")
+    check("⑩方括號沒收尾的假標記 → rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    for label, new in (("行首", base_body.replace("先前提過", "[test:test_head] 先前提過")),
+                       ("前面是全形空白", base_body.replace("的格式", "的格式\u3000[test:test_fw]")),
+                       ("前面是 tab", base_body.replace("的格式", "的格式\t[test:test_fw]")),
+                       ("在縮排後面", base_body.replace("    縮排的程式碼", "    [test:test_more] 縮排的程式碼")),
+                       ("後面緊接句號", base_body.replace("實作在 `src/b.py`。", "實作在 `src/b.py` [test:test_more]。")),
+                       ("後面緊接全形逗號", base_body.replace("- 第一層", "- 第一 [test:test_more],層").replace("- 第一 [test:test_more],層", "- 第一 [test:test_more]，層"))):
+        if label == "後面緊接全形逗號":
+            _nh_node(root, "B", about=["src/b.py"], body=base_body.replace("- 第一層", "- 第一，層"))
+            _nh_commit(root, "改一個標點")
+        rc, out = try_body(new)
+        check(f"⑫標記{label} → rc0", rc == 0, out[-600:])
+        if label == "後面緊接全形逗號":
+            _nh_node(root, "B", about=["src/b.py"], body=base_body)
+            _nh_commit(root, "還原標點")
+    rc, out = try_body(base_body.replace("先前提過", "先前 [test:test_head]提過"))
+    check("⑫b 標記插在兩個字中間(前有空白、後緊接字)→ rc1(不吞原本沒有的空白)", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("- 第一層", "- [ ] [test:test_more]\n- 第一層"))
+    _nh_node(root, "B", about=["src/b.py"], body=base_body.replace("- 第一層", "- [ ] [test:test_more]\n- 第一層"))
+    _nh_commit(root, "加一個核取方塊")
+    rc, out = try_body(base_body.replace("- 第一層", "- [x] [test:test_more]\n- 第一層"))
+    check("⑫c 核取方塊只剩綁定、從未勾改成勾 → rc1(勾選狀態算內容)", rc == 1 and "Systems/B" in out, out[-600:])
+    _nh_node(root, "B", about=["src/b.py"], body=base_body)
+    _nh_commit(root, "拿掉核取方塊")
+    rc, out = try_body(base_body.replace("    縮排的程式碼 a = 1", "        縮排的程式碼 a = 1"))
+    check("⑬只改縮排(縮排程式碼)→ rc1(空白不壓平)", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("\n\n\nx = 1", "\n\nx = 1"))
+    check("⑭圍欄裡少一個空行 → rc1(圍欄裡原樣)", rc == 1 and "Systems/B" in out, out[-600:])
+    rc, out = try_body(base_body.replace("\n", "\r\n"))
+    check("⑮整篇換成 CRLF → rc0(行尾空白跟 sig 一樣去掉,不新增誤擋)", rc == 0, out[-600:])
+    base2 = base_body + "\n\n- [test:test_between]\n\n結尾一行"
+    _nh_node(root, "B", about=["src/b.py"], body=base2)
+    _nh_commit(root, "空行夾住的標記行")
+    rc, out = try_body(base_body + "\n\n結尾一行")
+    check("⑪空行夾住的單獨標記行整行刪掉 → rc0(只差空行)", rc == 0, out[-600:])
+
+
+def _slot_parse_reference(rest, m):
+    """slot_parse 抽成共用掃描之前的實作原樣(2026-10-05,只換測試綁定不算寫說明_計劃 [S5] 的對照組)。
+    把舊實作抄一份當對照組在本檔是第一次(代碼審 r1 架構對齊席):重構要證明「輸出逐字不變」,只有舊實作本身能當標準答案;
+    之後 slot_parse 的語意要刻意改時,這支跟著刪掉、改寫成新語意的斷言,不要回頭改這份抄本去配合。"""
+    fields, core, i, n = [], [], 0, len(rest)
+    while i < n:
+        c = rest[i]
+        if c == "`":
+            j = rest.find("`", i + 1)
+            if j == -1:
+                core.append(rest[i:])
+                break
+            core.append(rest[i:j + 1])
+            i = j + 1
+            continue
+        mm = m._SLOT_KEY_RE.match(rest, i) if c == "[" else None
+        if mm and mm.group(1).lower() in m._SLOT_CANON:
+            key, j = m._SLOT_CANON[mm.group(1).lower()], m._slot_value_end(rest, mm.end())
+            if j >= n:
+                fields.append((key, rest[mm.end():].strip(), "值裡的方括號要成對,或把值用反引號包起來"))
+                break
+            fields.append((key, rest[mm.end():j].strip(), None))
+            i = j + 1
+            continue
+        core.append(c)
+        i += 1
+    return {"fields": fields, "core": " ".join("".join(core).split())}
+
+
+def t_slot_parse_unchanged_after_scan_refactor():
+    """[只換測試綁定不算寫說明 S5] slot_parse 改走共用掃描後,對本 repo 圖譜每一行的輸出跟改之前逐字一樣;另加幾行刁鑽寫法。
+    翻紅釘:共用掃描對未收尾的值、落單反引號處理不同 → 紅。"""
+    print("t_slot_parse_unchanged_after_scan_refactor")
+    m = _load_lumos_inproc()
+    kb = Path(GRAPHCTL).resolve().parent.parent / "docs" / "lumos-toolchain-knowledge"
+    lines = ["KEY:a [test:x] `[test:y]` [不選:b [test:z] c] [since:2026-01-01", "x ` [test:q]", "[TEST：t] [ test : u ]",
+             "[test:`a ] b`] tail", "", "[[連結]] [test:test_x[case-1]] [出處:[[X]]]"]
+    for f in sorted(kb.rglob("*.md")):
+        lines.extend(f.read_text(encoding="utf-8", errors="replace").split("\n"))
+    bad = [ln for ln in lines if m.slot_parse(ln) != _slot_parse_reference(ln, m)]
+    check(f"全 repo 筆記 {len(lines)} 行的 slot_parse 輸出跟改之前一樣", not bad, repr(bad[:3]))
+    keys = tuple(m._SLOT_CANON.values())
+    bad2 = [ln for ln in lines if all(e is None for _k, _v, e in m.slot_parse(ln)["fields"])
+            and "".join(m._slot_strip_keys(ln, keys)[0].split()) != "".join(m.slot_parse(ln)["core"].split())]
+    check("_slot_strip_keys 拿掉全部鍵後去掉空白 = slot_parse 的核心一句去掉空白(兩支走同一套掃描,邊界判法一致)",
+          not bad2, repr(bad2[:3]))
+
+
+def t_nodehome_tag_only_new_names_must_be_real_tests():
+    """[只換測試綁定不算寫說明 S6] 新出現的綁定要指得到真測試才算只換綁定——不靠「筆記測試綁定要存在」那道補洞
+    (代碼審 r2:那道對 test-gone、合約行不核對名字,跳過與降級時也不核對)。推送前逐提交也一樣;
+    推送時目前簽出的不是終點(測試索引對不上被推的版本)就不豁免。
+    翻紅釘:改回只比 sig_t → ①②③紅;不看 _ns_tr_guard → ⑤紅。"""
+    print("t_nodehome_tag_only_new_names_must_be_real_tests")
+    root = _nh_tag_repo()
+    _nh_node(root, "B", about=["src/b.py"], summary="KEY:★INVARIANT★ b 不變 [test:test_alive]", body="實作在 `src/b.py`。")
+    _nh_commit(root, "init")
+    base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    def switch(branch, at):
+        # 每次檢查都會寫治理帳;不清掉的話下一次切分支會失敗、留在原分支上疊提交(寫這支時踩到)
+        _nh_git(root, "reset", "-q", "--hard")
+        _nh_git(root, "clean", "-fdq")
+        r = _nh_git(root, "checkout", "-q", "-B", branch, at)
+        assert r.returncode == 0, r.stderr
+
+    for i, extra in enumerate(("[test:a now retries three times then logs]", "[test-gone:a now retries three times]",
+                               "[test-gone:a now retries@abc1234]")):
+        switch(f"t{i}", base)
+        _nh_file(root, "src/a.py", f"x = {i + 2}\n")
+        _nh_node(root, "B", about=["src/b.py"], summary=f"KEY:★INVARIANT★ b 不變 [test:test_alive] {extra}", body="實作在 `src/b.py`。")
+        _nh_commit(root, "改 a、把說明包成綁定藏進 B 的合約行")
+        rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+        check(f"{'①②③'[i]}推送前:合約行新寫 {extra} → rc1、點名 B", rc == 1 and "Systems/B" in out, out[-600:])
+    switch("ok", base)
+    _nh_file(root, "src/a.py", "x = 9\n")
+    _nh_node(root, "B", about=["src/b.py"], summary="KEY:★INVARIANT★ b 不變 [test:test_alive] [test:test_keep]", body="實作在 `src/b.py`。")
+    _nh_commit(root, "改 a、B 只加一個真測試綁定")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("④推送前:新綁定是真測試 → rc0", rc == 0, out[-600:])
+    _nh_file(root, "tests/test_b.py", (root / "tests" / "test_b.py").read_text(encoding="utf-8") + "\n# 沒提交的改動\n")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("④b 推送時已追蹤的測試檔有沒提交的改動(測試索引對不上被推的版本)→ 不豁免、rc1", rc == 1 and "Systems/B" in out, out[-600:])
+    tip = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    _nh_git(root, "reset", "-q", "--hard")
+    _nh_git(root, "clean", "-fdq")
+    _nh_git(root, "checkout", "-q", base)
+    rc, out = _nh_check(root, "--diff", f"{base}..{tip}")
+    check("⑤推送的不是目前簽出的版本(測試索引對不上)→ 不豁免、rc1", rc == 1 and "Systems/B" in out, out[-600:])
+
+
+def t_nodehome_diff_test_tag_only_edit_is_not_write_back():
+    """[只換測試綁定不算寫說明 S2] 推送前逐提交:同一個提交改程式、另一篇只換測試綁定 → rc0;改了散文照擋。
+    翻紅釘:推送前逐提交的內容比對不拿掉綁定標記 → ①紅。"""
+    print("t_nodehome_diff_test_tag_only_edit_is_not_write_back")
+    root = _nh_tag_repo()
+    _nh_node(root, "B", about=["src/b.py"], body="實作在 `src/b.py`。[test:test_old]")
+    _nh_commit(root, "init")
+    base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    _nh_file(root, "src/a.py", "x = 2\n")
+    _nh_node(root, "B", about=["src/b.py"], body="實作在 `src/b.py`。[test:test_new]")
+    _nh_commit(root, "改程式、B 只換綁定")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("①推送前:同一個提交改程式、B 只換綁定 → rc0", rc == 0, out[-800:])
+    _nh_file(root, "src/a.py", "x = 3\n")
+    _nh_node(root, "B", about=["src/b.py"], body="實作在 `src/b.py`,a 也改了。[test:test_new]")
+    _nh_commit(root, "改程式、B 寫散文")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("②推送前:同一個提交改程式、B 改散文 → rc1", rc == 1 and "Systems/B" in out, out[-800:])
 
 
 def t_nodehome_merge_auto_combined_not_blocked():
@@ -48848,7 +51511,7 @@ def t_spec_gate_writes_run_record():
     import json as _j
     d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "sg12")
     _sg_plan(kg, "癸", ["- [S1] 系統應回 200 [test:t_red]", "- [S2] 系統應回 201 [test:t_green]"]); run(kg, "spec-gate", "Projects/癸_計劃", expect_rc=0)
-    rows = [_j.loads(l) for l in (d / "docs" / ".governance-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = _gov_events_all(d / "docs")       # spec-gate-run 寫本機帳
     sg = [r for r in rows if r.get("kind") == "spec-gate-run"]
     check("① 治理帳多一行 spec-gate-run,note 含 S1=red 與 S2=green", len(sg) == 1 and "S1=red" in sg[0].get("note", "") and "S2=green" in sg[0].get("note", ""), str(rows[-1:])[:300])
 
@@ -50309,11 +52972,8 @@ def _ns_reset(root):
 
 
 def _ns_gov(root):
-    import json as _j
-    p = root / "docs" / ".governance-log.jsonl"
-    if not p.is_file():
-        return []
-    return [_j.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # 版控帳與本機帳合起來、依時間排序(hinted 等例行觀察寫本機帳,治理帳例行紀錄分流_計劃)
+    return _gov_events_all(Path(root) / "docs")
 
 
 def t_notelines_parse_hunks():
@@ -52645,9 +55305,9 @@ def t_note_audit_modes_and_event_kinds():
     _na_body(root, ["甲行"])
     _nh_commit(root, "add")
     rng = f"{base}..{_na_head(root)}"
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, out = _na(root, "check", "--diff", rng)
-    check("②off:放行、不寫帳", rc == 0 and len(_ns_gov(root)) == n0, out[-300:])
+    check("②off:放行、不寫帳", rc == 0 and len(_ns_gov(root)) == len(n0), out[-300:])
     check("③off:doctor 印一行", any("off" in l for l in m._note_audit_doctor_lines(root, root / _NA_VAULT)), "")
     (root / ".lumos" / "config.json").write_text(_j.dumps({"note_audit": {"gate": "warn"}}), encoding="utf-8")
     _nh_commit(root, "warn")
@@ -53631,7 +56291,9 @@ def t_prepush_gates_stop_on_signal():
     # 五道的停下都拿掉:漂移那道在這次之前就會停(寫法不同),拿掉後一樣退回放行,一起當對照。
     # 第六行是回頭重讀提醒(Projects/守檔筆記對照改動_計劃 [S9]):它只在回傳碼 130(Ctrl-C)時才交給 pp_stop_if_signaled,
     # 被其他訊號砍掉照推——那一道的兩種情形在 t_note_audit_reread_check_wired 驗,這裡只數行數
-    check("前置:掛鉤裡六道閘各有一行 pp_stop_if_signaled(五道會擋的閘+回頭重讀提醒的 Ctrl-C)", n == 6, str(n))
+    # 第七、八行是新分支首推起點(push-range,Projects/新分支首推會擋的閘改用真起點_計劃):迴圈裡一次、餵 doctor 的觸及清單一次;
+    # 這支的推送行遠端舊值不是全零、走不到它,被殺掉停下的情形在 t_prepush_new_branch_block_range ⑦ 驗
+    check("前置:掛鉤裡八行 pp_stop_if_signaled(五道會擋的閘+回頭重讀提醒的 Ctrl-C+新分支首推起點兩處)", n == 8, str(n))
     old_hook = Path(tempfile.mkdtemp(prefix="gctl-oldhook-")) / "pre-push"
     old_hook.write_text(old_txt, encoding="utf-8")
     rc, lines, out = _dr_hook_run(root, stdin)
@@ -54702,7 +57364,7 @@ def t_drift_code_review_r2_regressions():
     a = "a" * 40
     calls = []
     try:
-        g_["_ns_git"] = lambda root, *args: ((a + "\0\n" + p + "\0").encode() if "--follow" in args else b"")
+        g_["_ns_git"] = lambda root, *args: ((a + "\0\nM\0" + p + "\0").encode() if "--follow" in args else b"")
         # 只讓「歷史那一批」讀失敗、起點那一版讀得到(兩批都失敗時起點那道會先接住,分不出這一處有沒有修)
         g_["_nodehome_cat_blobs"] = lambda root, specs, **kw: (None if specs[0].startswith(a) else
                                                                 [b"---\nstatus: pending\n---\n" for _ in specs])
@@ -54804,7 +57466,7 @@ def t_drift_code_review_r3_regressions():
     p = "docs/kg-knowledge/Projects/P.md"
     a = "a" * 40
     try:
-        g_["_ns_git"] = lambda root, *args: ((a + "\0\n" + p + "\0").encode() if "--follow" in args else
+        g_["_ns_git"] = lambda root, *args: ((a + "\0\nM\0" + p + "\0").encode() if "--follow" in args else
                                              (p + "\0").encode() if "log" in args else b"")
         g_["_nodehome_cat_blobs"] = lambda root, specs, **kw: None
         blob = b"---\ntype: project\nstatus: done\n---\n"
@@ -54816,7 +57478,7 @@ def t_drift_code_review_r3_regressions():
         check("④存量漂移(嚴格):批次讀失敗算判不了", got is None, str(got))
         # ⑤ 改名對照讀失敗
         g_["_nodehome_cat_blobs"] = lambda root, specs, **kw: [b"---\nstatus: pass\n---\n" for _ in specs]
-        g_["_ns_git"] = lambda root, *args: ((a + "\0\n" + p + "\0").encode() if "--follow" in args else
+        g_["_ns_git"] = lambda root, *args: ((a + "\0\nM\0" + p + "\0").encode() if "--follow" in args else
                                              None if "--name-status" in args else b"")
         check("⑤嚴格:改名對照讀失敗算判不了", m._note_status_seq(".", "BASE", "TIP", "docs/kg-knowledge", p, strict=True) is None, "")
         # ⑥ 預算
@@ -54825,7 +57487,7 @@ def t_drift_code_review_r3_regressions():
         def slow(root, *args):
             calls.append(_t.monotonic())
             _t.sleep(0.2)
-            return (a + "\0\n" + p + "\0").encode() if "--follow" in args else b""
+            return (a + "\0\nM\0" + p + "\0").encode() if "--follow" in args else b""
         g_["_ns_git"] = slow
         dl = _t.monotonic() + 0.05
         m._note_status_seq(".", "BASE", "TIP", "docs/kg-knowledge", p, deadline=dl, strict=True)
@@ -54885,7 +57547,7 @@ def t_drift_code_review_r4_regressions():
     try:
         def git1(root, *args):
             if "--follow" in args:
-                return None if args[-1] == p1 else (a + "\0\n" + p2 + "\0").encode()
+                return None if args[-1] == p1 else (a + "\0\nM\0" + p2 + "\0").encode()
             if "--name-status" in args:
                 return b""
             return (p1 + "\0" + p2 + "\0").encode()
@@ -54898,7 +57560,7 @@ def t_drift_code_review_r4_regressions():
                 lambda x, y: x != "done" and y == "done", strict=True)
         check("①嚴格:同一情況判不了", got is None, str(got))
         # ⑤ 歷史裡一版解不開
-        g_["_ns_git"] = lambda root, *args: ((a + "\0\n" + p1 + "\0" + b + "\0\n" + p1 + "\0").encode() if "--follow" in args else b"")
+        g_["_ns_git"] = lambda root, *args: ((a + "\0\nM\0" + p1 + "\0" + b + "\0\nM\0" + p1 + "\0").encode() if "--follow" in args else b"")
         g_["_nodehome_cat_blobs"] = lambda root, specs, **kw: ([b"---\nstatus: pass\n---\n", bytes([255])] if len(specs) == 2
                                                                else [b"---\nstatus: pending\n---\n"])
         check("⑤嚴格:歷史裡有一版解不開就判不了",
@@ -54973,7 +57635,7 @@ def t_drift_code_review_r5_regressions():
     p = "docs/kg-knowledge/Verification/G.md"
     a = "a" * 40
     try:
-        g_["_ns_git"] = lambda root, *args: ((a + "\0\n" + p + "\0").encode() if "--follow" in args else b"")
+        g_["_ns_git"] = lambda root, *args: ((a + "\0\nM\0" + p + "\0").encode() if "--follow" in args else b"")
         g_["_nodehome_cat_blobs"] = lambda root, specs, **kw: ([b"---\nstatus: pass\n---\n"] if specs[0].startswith(a)
                                                                else [b"---\nstatus: pending\n---\n\xff"])
         check("①嚴格:起點那一版解不開判不了", f(".", "BASE", "TIP", "docs/kg-knowledge", p, strict=True) is None, "")
@@ -55557,6 +58219,88 @@ def t_test_run_cmd_uses_running_python():
           str((cfg.get("test") or {}).get("run_cmd", "")).startswith("{python} "), str(cfg.get("test")))
 
 
+# 拆成多個工作之前(2026-10-06,CI加速_計劃 [S1])後盾每一步 run/if/continue-on-error/env 的指紋——拆分只准搬家、不准改指令
+# (env 裡讀前一步輸出的 steps.suite.outputs 換成 needs.prep.outputs 是唯一准許的改動,比對前換回來;行尾註解不算)
+_DR_CI_GATE_STEP_FP = {
+    "自主迴圈測試": "70b4cb1b0437f13e",
+    "Graph doctor (strict)": "2dedc7be727156cd",
+    "code-loop gate (push 後盾;體檢 #5)": "60f8a6e29a02b58f",
+    "note-shape gate (筆記形狀擋;--no-verify 後盾)": "6e82ad401c1f6fa6",
+    "drift check (存量漂移檢查;--no-verify 後盾)": "f6f6bc3db304d1e7",
+    "note reread reminder (回頭重讀守檔筆記;只提醒、不擋)": "e72639490ed32108",
+    "Anchor verify (baseline 缺失必紅)": "53dc952f8a95ec57",
+}
+
+
+def _dr_ci_step_fp(block):
+    """一個步驟 → run、if、continue-on-error、env 四種行的指紋(縮排照 ci.yml:步驟 6 格、鍵 8 格、內容 10 格)。"""
+    import re as _re
+    import hashlib as _h
+    keep, inrun, inenv = [], False, False
+    for ln in block.split("\n"):
+        if _re.match(r"^        (if|continue-on-error):", ln):
+            keep.append(ln)
+            inrun = inenv = False
+            continue
+        if _re.match(r"^        env:\s*$", ln):
+            keep.append(ln)
+            inrun, inenv = False, True
+            continue
+        if _re.match(r"^        run:", ln):
+            keep.append(ln)
+            inrun, inenv = True, False
+            continue
+        if inenv and _re.match(r"^          \S", ln) and not ln.strip().startswith("#"):
+            keep.append(_re.sub(r"\s+#.*$", "", ln).replace("needs.prep.outputs.", "steps.suite.outputs."))
+            continue
+        if inrun and (ln.startswith("          ") or not ln.strip()):
+            keep.append(ln)
+            continue
+        if _re.match(r"^        \S", ln):
+            inrun = inenv = False
+    return _h.sha256("\n".join(keep).rstrip().encode()).hexdigest()[:16]
+
+
+def t_ci_yml_matrix_and_gates_shape():
+    """[CI加速 S1] CI 拆成 prep/shards/gates:全套在 matrix 工作、份數編號 1..N 各一次、fail-fast 關、只在 suite=full 跑;
+    後盾七步全在 gates、指令與環境變數跟拆分前逐字相同、順序相同;三個工作都抓完整歷史、都有逾時上限。
+    翻紅釘:漏搬一道後盾、改了後盾指令或環境變數、漏一份或重複一份、拿掉 fetch-depth 或 timeout → 紅。"""
+    print("t_ci_yml_matrix_and_gates_shape")
+    import re as _re
+    _need_src(".github/workflows/ci.yml")
+    ci = (Path(GRAPHCTL).resolve().parent.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    body = ci[ci.index("\njobs:\n") + len("\njobs:\n"):]
+    parts = _re.split(r"(?m)^  ([A-Za-z0-9_-]+):\s*$", body)
+    jobs = {parts[k]: parts[k + 1] for k in range(1, len(parts) - 1, 2)}
+    check("①三個工作 prep、shards、gates 都在", {"prep", "shards", "gates"} <= set(jobs), str(sorted(jobs)))
+    # 不共用 scripts/lumos 的 _ci_has_full_history:它不認「fetch-depth: 0  # 行尾註解」(本檔 ci.yml 就是這樣寫),
+    # 另立 Issues/CI完整歷史判斷不認行尾註解 追蹤(代碼審 code-ci-speedup r1 架構對齊席)
+    for name in ("prep", "shards", "gates"):
+        b = jobs.get(name, "")
+        check(f"②{name} 抓完整歷史、有逾時上限",
+              _re.search(r"(?m)^ +fetch-depth: 0\b", b) is not None and _re.search(r"(?m)^    timeout-minutes: \d+", b) is not None, name)
+    sh = jobs.get("shards", "")
+    m = _re.search(r"(?m)^ +shards: \[(.*)\]\s*$", sh)
+    total = _re.search(r'(?m)^ +SHARD_TOTAL: "?(\d+)"?\s*$', sh)
+    nums = sorted(int(x) for g in _re.findall(r'"([0-9 ]+)"', m.group(1)) for x in g.split()) if m else []
+    n = int(total.group(1)) if total else -1
+    check("③matrix 清單的份數編號合起來剛好是 1..N 各一次", n > 1 and nums == list(range(1, n + 1)), f"N={n} nums={nums}")
+    check("④fail-fast 關掉、只在 suite=full 跑、需要 prep",
+          "fail-fast: false" in sh and "needs.prep.outputs.suite == 'full'" in sh and _re.search(r"(?m)^    needs: \[?prep", sh) is not None, "")
+    check("④b 每台用 --shard 跑自己那幾份、總份數取 SHARD_TOTAL", '--shard "$i/$SHARD_TOTAL"' in sh, "")
+    gb = jobs.get("gates", "")
+    blocks = _re.split(r"\n(?=      - )", gb)
+    order = []
+    for name, fp in _DR_CI_GATE_STEP_FP.items():
+        hit = [b for b in blocks if b.startswith(f"      - name: {name}")]
+        check(f"⑤後盾「{name}」在 gates 且指令跟拆分前逐字相同", len(hit) == 1 and _dr_ci_step_fp(hit[0]) == fp,
+              _dr_ci_step_fp(hit[0]) if hit else "不在 gates")
+        order.append(gb.find(f"      - name: {name}"))
+    check("⑥後盾順序跟拆分前一樣", all(x >= 0 for x in order) and order == sorted(order), str(order))
+    for name in _DR_CI_GATE_STEP_FP:
+        check(f"⑦「{name}」只出現在 gates(沒有兩份)", ci.count(f"      - name: {name}") == 1, "")
+
+
 def t_ci_runs_python314_and_old_syntax_check():
     """[S6] CI 在 3.14 上跑,並以釘版本的 ruff(py39)檢查三類必須 3.9 能解析的檔;doctor 印給消費專案的 CI 步驟提示講明要 3.14
     (Projects/最低Python版本改3.14_計劃 做法第 7 點)。
@@ -56017,6 +58761,533 @@ def t_drift_when_gone_review_r2():
         m._nodehome_cat_blobs_capped = real
     check("④git 模式:超過上限與讀不出分開講", "超過" in tr.gone_why.get("src/big.py::time.time()", "") and "讀不出" not in tr.gone_why.get("src/big.py::time.time()", "")
           and tr2.gone_why.get("src/a.py::time.time()", "") == "讀不出", (tr.gone_why, tr2.gone_why))
+
+
+def _born_scan(root, *extra):
+    """drift scan --json → ({(路徑, 原文裡的條件片段): born}, 文字輸出);born 沒有就是 None。"""
+    import json as _j, subprocess as sp
+    r = sp.run([sys.executable, GRAPHCTL, "drift", "scan", "--json", *extra], capture_output=True, text=True, cwd=str(root))
+    try:
+        fs = _j.loads(r.stdout)["findings"]
+    except (ValueError, KeyError):
+        return {("錯", "", r.stdout + r.stderr): None}, ""
+    got = {}
+    for f in fs:
+        if f["kind"] in ("probe", "retire"):
+            got[(f["path"], f["kind"], f["text"])] = f.get("born")
+    t = sp.run([sys.executable, GRAPHCTL, "drift", "scan", *extra], capture_output=True, text=True, cwd=str(root))
+    return got, t.stdout + t.stderr
+
+
+def _born_of(got, path, needle, kind="probe"):
+    for (p, k, t), b in got.items():
+        if p == path and k == kind and needle in t:
+            return b
+    return "沒找到"
+
+
+def t_drift_born_true_scan():
+    """[S1] 寫下那一版條件就已成立的回頭條件:scan 文字在那一條底下印「寫下時就已成立」與寫下那一版的短編號、--json 的
+    born.state=true、born.commit=寫下那一版;已表態的照印;寫下時不成立後來才成立的是 false、不印;RULE 撤除條件照同一套標。
+
+    翻紅釘:在終點判(不往回找)→ 後來才成立的那條也變 true;已表態的不印 → ④紅。"""
+    print("t_drift_born_true_scan")
+    root = _dr_repo()
+    _nh_file(root, "src/other.py", "x = 1\n")
+    _nh_commit(root, "程式")
+    _nh_node(root, "Pay", summary="FLOW:a\nRULE:要人簽 [依據:人] [since:2026-09-01] [retire:when-file:src/other.py]",
+             body="REVISIT:[when-file:src/other.py][by:2099-12-31] 生來就成立的\n"
+                  "REVISIT:[when-file:src/runner.py][by:2099-12-31] 後來才成立的")
+    _nh_commit(root, "寫下")
+    w1 = _na_head(root)
+    _nh_file(root, "src/runner.py", "def main():\n    pass\n")
+    _nh_commit(root, "加啟動程式")
+    got, txt = _born_scan(root)
+    b = _born_of(got, "Systems/Pay.md", "生來就成立")
+    check("①生來就成立:state=true、commit=寫下那一版", isinstance(b, dict) and b.get("state") == "true"
+          and b.get("commit") == w1 and b.get("date"), (b, got))
+    b2 = _born_of(got, "Systems/Pay.md", "後來才成立")
+    check("②後來才成立:state=false", isinstance(b2, dict) and b2.get("state") == "false", (b2, got))
+    br = _born_of(got, "Systems/Pay.md", "要人簽", kind="retire")
+    check("③RULE 撤除條件照同一套標", isinstance(br, dict) and br.get("state") == "true" and br.get("commit") == w1, (br, got))
+    check("①文字輸出印「寫下時就已成立」與短編號,只印兩條(回頭條件、撤除條件)",
+          txt.count("寫下時就已成立") == 2 and w1[:7] in txt, txt[-1500:])
+    check("①訊息只講查到的:從那一版起連續出現,不講「第一次出現」(代碼審 r1 正確性席 F2)",
+          f"{w1[:7]}" in txt and "起連續出現在這篇" in txt and "第一次出現" not in txt, txt[-1500:])
+    import subprocess as sp
+    line = next(i for i, ln in enumerate((root / "docs/kg-knowledge/Systems/Pay.md").read_text(encoding="utf-8").split("\n"), 1)
+                if "生來就成立" in ln)
+    r = sp.run([sys.executable, GRAPHCTL, "drift", "ack", "Systems/Pay", str(line), "--kind", "probe", "--reason", "照留觀察中"],
+               capture_output=True, text=True, cwd=str(root))
+    _nh_commit(root, "表態")
+    got, txt = _born_scan(root)
+    seg = txt[txt.find("生來就成立"):]
+    check("④已表態的照印那一行", r.returncode == 0 and "(已表態)" in seg.split("\n")[0]
+          and "寫下時就已成立" in "\n".join(seg.split("\n")[1:3]), (r.stdout + r.stderr, txt[-1500:]))
+    check("④前提:JSON 照標 true", (_born_of(got, "Systems/Pay.md", "生來就成立") or {}).get("state") == "true", got)
+
+
+def t_drift_born_identity():
+    """[S2] 同一條的認法:只改待辦文字、搬位置、筆記改名仍追到最早那一版;改了條件從改的那一版算;刪掉再寫回從寫回那一版算;
+    側分支寫、合併進主線以合併那一版算。
+
+    翻紅釘:用整行文字認同一條 → ①紅;不加 --first-parent → ④拿到側分支的提交。"""
+    print("t_drift_born_identity")
+    root = _dr_repo()
+    _nh_file(root, "src/a.py", "x = 1\n")
+    _nh_file(root, "src/b.py", "x = 1\n")
+    _nh_commit(root, "程式")
+    _nh_node(root, "Pay", summary="FLOW:a", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 原本的待辦")
+    _nh_node(root, "Q", summary="FLOW:q", body="REVISIT:[when-file:src/a.py][by:2099-12-31] q 的待辦")
+    _nh_node(root, "R", summary="FLOW:r", body="REVISIT:[when-file:src/b.py][by:2099-12-31] r 的待辦")
+    _nh_commit(root, "寫下")
+    w1 = _na_head(root)
+    _nh_node(root, "Pay", summary="FLOW:a", body="新加的段落\n\n另一段\nREVISIT:[when-file:src/a.py][by:2099-12-31] 改過的待辦文字")
+    _nh_node(root, "Q", summary="FLOW:q", body="REVISIT:[when-file:src/b.py][by:2099-12-31] q 的待辦")
+    _nh_node(root, "R", summary="FLOW:r", body="r 刪掉了")
+    _nh_commit(root, "改文字、改條件、刪掉")
+    w2 = _na_head(root)
+    _nh_git(root, "mv", "docs/kg-knowledge/Systems/Pay.md", "docs/kg-knowledge/Systems/Pay2.md")
+    _nh_node(root, "R", summary="FLOW:r", body="REVISIT:[when-file:src/b.py][by:2099-12-31] r 寫回來")
+    _nh_commit(root, "改名、寫回")
+    w3 = _na_head(root)
+    _nh_git(root, "checkout", "-q", "-b", "side")
+    _nh_node(root, "S", summary="FLOW:s", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 側分支寫的")
+    _nh_commit(root, "側分支")
+    side = _na_head(root)
+    _nh_git(root, "checkout", "-q", "-")
+    _nh_file(root, "src/c.py", "y = 2\n")
+    _nh_commit(root, "主線另一個改動")
+    _nh_git(root, "merge", "-q", "--no-ff", "--no-edit", "side")
+    mg = _na_head(root)
+    src = (root / "docs/kg-knowledge/Systems/Pay2.md").read_text(encoding="utf-8")
+    (root / "docs/kg-knowledge/Systems/T.md").write_text(src.replace("# Pay", "# T"), encoding="utf-8")
+    _nh_commit(root, "複製一篇")
+    cp = _na_head(root)
+    check("⑤前提:git 把 T 認成從 Pay2 複製來的", "C" in _nh_git(root, "log", "--follow", "--format=", "--name-status", "-1", "--",
+          "docs/kg-knowledge/Systems/T.md").stdout[:2], "")
+    got, _txt = _born_scan(root)
+    b = _born_of(got, "Systems/Pay2.md", "改過的待辦文字")
+    check("①只改待辦文字、搬位置、改名:追到最早那一版", isinstance(b, dict) and b.get("commit") == w1, (b, w1, got))
+    b = _born_of(got, "Systems/Q.md", "q 的待辦")
+    check("②改了條件:從改的那一版算", isinstance(b, dict) and b.get("commit") == w2, (b, w2))
+    b = _born_of(got, "Systems/R.md", "r 寫回來")
+    check("③刪掉再寫回:從寫回那一版算", isinstance(b, dict) and b.get("commit") == w3, (b, w3))
+    b = _born_of(got, "Systems/S.md", "側分支寫的")
+    check("④側分支寫、合併進主線:以合併那一版算", isinstance(b, dict) and b.get("commit") == mg and mg != side, (b, mg, side))
+    b = _born_of(got, "Systems/T.md", "改過的待辦文字")
+    check("⑤從別篇複製來的:以複製那一版算、不追進來源那篇", isinstance(b, dict) and b.get("commit") == cp, (b, cp, w1))
+    # ⑥ 改壞(解析不到)再修好:這一世從修好那一版算(代碼審 r1 正確性席 F2;訊息只講「從那一版起連續出現」)
+    _nh_node(root, "G", summary="FLOW:g", body="REVISIT:[when-file:src/z.py][by:2099-12-31] 中間壞過")
+    _nh_commit(root, "寫下(z.py 不在)")
+    _nh_node(root, "G", summary="FLOW:g", body="REVISIT [when-file:src/z.py][by:2099-12-31] 中間壞過")
+    _nh_file(root, "src/z.py", "z = 1\n")
+    _nh_commit(root, "改壞、加 z.py")
+    _nh_node(root, "G", summary="FLOW:g", body="REVISIT:[when-file:src/z.py][by:2099-12-31] 中間壞過")
+    _nh_commit(root, "修好")
+    fix = _na_head(root)
+    got, _txt = _born_scan(root)
+    b = _born_of(got, "Systems/G.md", "中間壞過")
+    check("⑥改壞再修好:這一世從修好那一版算", isinstance(b, dict) and b.get("commit") == fix and b.get("state") == "true", (b, fix))
+
+
+def t_note_versions_stop_at_copy():
+    """[S5] 共用的版本清單停在複製:git log --follow 也跟複製(關不掉),新開一篇跟舊篇很像的筆記原本會一路追進舊篇的歷史——
+    狀態序列混進舊篇的狀態翻轉(doing→done 被當成新篇在範圍裡收尾)。改名照跟。
+
+    翻紅釘:_note_versions 不停在 C → ①②紅。"""
+    print("t_note_versions_stop_at_copy")
+    m = _load_lumos_inproc()
+    root = _nh_repo()
+    _nh_node(root, "A_計劃", typ="project", folder="Projects", resp=None, status="doing", summary="KEY:一樣的摘要",
+             body="很長的一樣內容\n" * 20)
+    _nh_commit(root, "A doing")
+    c1 = _na_head(root)
+    _nh_node(root, "A_計劃", typ="project", folder="Projects", resp=None, status="done", summary="KEY:一樣的摘要",
+             body="很長的一樣內容\n" * 20)
+    _nh_commit(root, "A done")
+    src = (root / "docs/kg-knowledge/Projects/A_計劃.md").read_text(encoding="utf-8")
+    (root / "docs/kg-knowledge/Projects/B_計劃.md").write_text(src.replace("# A_計劃", "# B_計劃"), encoding="utf-8")
+    _nh_commit(root, "複製成 B")
+    cp = _na_head(root)
+    bp = "docs/kg-knowledge/Projects/B_計劃.md"
+    pre = _nh_git(root, "log", "--follow", "--format=", "--name-status", "-1", "--", bp).stdout.strip()
+    check("前提:git 把 B 認成從 A 複製來(不然①②③走不到停在複製那一段)", pre.startswith("C"), pre)
+    vs = m._note_versions(root, "HEAD", bp)
+    check("①版本清單停在複製那一版", [s_ for s_, _q in vs] == [cp], vs)
+    seq = m._note_status_seq(root, c1, "HEAD", "docs/kg-knowledge", bp, strict=True)
+    check("②狀態序列不混進來源那篇的翻轉", seq == [None, "done"], seq)
+    _nh_git(root, "mv", bp, "docs/kg-knowledge/Projects/C_計劃.md")
+    _nh_commit(root, "改名成 C")
+    vs = m._note_versions(root, "HEAD", "docs/kg-knowledge/Projects/C_計劃.md")
+    check("③改名照跟、跟到複製那一版為止", [s_ for s_, _q in vs][1:] == [cp] and len(vs) == 2, vs)
+    ha, hb = "a" * 40, "b" * 40
+    raw = (ha + "\0\n" + hb + "\0\nR087\0old.md\0new.md\0").encode()
+    check("④沒有檔案列的提交(合併提交)跳過、不把下一個提交編號當路徑;改名取新路徑",
+          m._git_log_sha_status_paths(raw) == [(hb, "new.md", "R")], m._git_log_sha_status_paths(raw))
+    # 代碼審 r2 正確性席 F1:本機設 log.showSignature=true 時,簽章提交的編號前面會夾 gpg 訊息。原本跳過對不上的片段、
+    # 沿用上一個提交編號,簽章提交的檔案列被記到別人名下,寫下那一版追錯
+    raw = (ha + "\0\nM\0a.md\0" + "gpg: Signature made\n" + hb + "\0\nM\0a.md\0").encode()
+    check("⑤認不得的片段整份判不了,不沿用上一個提交編號", m._git_log_sha_status_paths(raw) is None,
+          m._git_log_sha_status_paths(raw))
+    seen = []
+    orig_ns, orig_lens = m._ns_git, m._lens_git
+    m._ns_git = lambda r_, *a: (seen.append(a), orig_ns(r_, *a))[1]
+    m._lens_git = lambda r_, *a, **k: (seen.append(a), orig_lens(r_, *a, **k))[1]
+    try:
+        _nh_git(root, "config", "log.showSignature", "true")
+        m._note_versions(root, "HEAD", "docs/kg-knowledge/Projects/C_計劃.md")
+        d = m._git_commit_date(root, cp)
+    finally:
+        m._ns_git, m._lens_git = orig_ns, orig_lens
+    logs = [a for a in seen if a and a[0] in ("log", "show")]
+    check("⑥版本清單與取日期的 git 呼叫都關掉簽章顯示", {a[0] for a in logs} == {"log", "show"} and all("--no-show-signature" in a for a in logs), logs)
+    import re as _re
+    check("⑦取日期只回 YYYY-MM-DD", isinstance(d, str) and _re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) is not None, d)
+    m._lens_git = lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="gpg: Signature made\n2026-10-03\n", stderr="")
+    try:
+        d = m._git_commit_date(root, cp)
+    finally:
+        m._lens_git = orig_lens
+    check("⑧輸出夾了別的東西就不給日期", d is None, d)
+
+
+def t_drift_born_unknown():
+    """[S3] 判不了一律 state=unknown、why 講原因、文字只印一行彙總:同篇兩行同條件、走到的某一版不是 UTF-8、淺層 clone、
+    partial clone、工作目錄裡還沒提交的行、超過 6 個不同提交;不是 git 專案照樣判不了、scan 照常列其他發現。"""
+    print("t_drift_born_unknown")
+    import subprocess as sp, shutil
+    root = _dr_repo()
+    _nh_file(root, "src/a.py", "x = 1\n")
+    _nh_commit(root, "程式")
+    _nh_node(root, "Dup", summary="FLOW:d", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 一\n"
+                                                 "REVISIT:[when-file:src/a.py][by:2099-12-31] 二")
+    p = root / "docs/kg-knowledge/Systems/Bad.md"
+    _nh_node(root, "Bad", summary="FLOW:b", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 壞版本\n")
+    p.write_bytes(p.read_bytes() + b"\xff\xfe big5 \xa7\xda\n")
+    _nh_commit(root, "寫下(Bad 那一版不是 UTF-8)")
+    _nh_node(root, "Bad", summary="FLOW:b", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 壞版本\n修好編碼")
+    _nh_commit(root, "修好編碼")
+    _nh_node(root, "New", summary="FLOW:n", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 還沒提交")
+    got, txt = _born_scan(root)
+    for path, needle, word in (("Systems/Dup.md", "一", "不只一行"), ("Systems/Bad.md", "壞版本", "UTF-8"),
+                               ("Systems/New.md", "還沒提交", "還沒提交")):
+        b = _born_of(got, path, needle)
+        check(f"①判不了:{path} why 講出「{word}」", isinstance(b, dict) and b.get("state") == "unknown"
+              and word in (b.get("why") or ""), (b, got))
+    check("①文字輸出只印一行彙總、不逐條印", txt.count("查不出寫下時成不成立") == 1 and "寫下時就已成立" not in txt, txt[-1500:])
+    (root / "docs/kg-knowledge/Systems/New.md").unlink()
+    # 代碼審 r1 正確性席 F1:已提交一行、工作目錄加同條件第二行(未提交)——原本兩行都被標成寫下時就已成立
+    _nh_node(root, "W", summary="FLOW:w", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 已提交的")
+    _nh_commit(root, "W 寫下")
+    _nh_node(root, "W", summary="FLOW:w", body="REVISIT:[when-file:src/a.py][by:2099-12-31] 已提交的\n"
+             "REVISIT:[when-file:src/a.py][by:2099-12-31] 工作目錄多一行")
+    got, _txt = _born_scan(root)
+    bs = [_born_of(got, "Systems/W.md", w) for w in ("已提交的", "工作目錄多一行")]
+    check("①工作目錄裡同組條件兩行:兩行都判不了「不只一行」", all(isinstance(b, dict) and b.get("state") == "unknown"
+          and "不只一行" in (b.get("why") or "") for b in bs), bs)
+    _nh_git(root, "checkout", "--", "docs/kg-knowledge/Systems/W.md")
+    sh = Path(tempfile.mkdtemp(prefix="gctl-born-shallow-")) / "c"
+    sp.run(["git", "clone", "-q", "--depth", "1", f"file://{root}", str(sh)], capture_output=True)
+    got, txt = _born_scan(sh)
+    b = _born_of(got, "Systems/Bad.md", "壞版本")
+    check("②淺層 clone:判不了、講原因", isinstance(b, dict) and b.get("state") == "unknown" and "淺層" in (b.get("why") or ""), (b, got))
+    _nh_git(root, "config", "extensions.partialClone", "origin")
+    got, _txt = _born_scan(root)
+    b = _born_of(got, "Systems/Bad.md", "壞版本")
+    check("③partial clone:判不了、講原因", isinstance(b, dict) and b.get("state") == "unknown" and "partial" in (b.get("why") or ""), (b, got))
+    _nh_git(root, "config", "--unset", "extensions.partialClone")
+    for i in range(7):
+        _nh_node(root, f"N{i}", summary="FLOW:n", body=f"REVISIT:[when-file:src/a.py][by:2099-12-31] 第 {i} 條")
+        _nh_commit(root, f"第 {i} 條")
+    got, _txt = _born_scan(root)
+    bs = [_born_of(got, f"Systems/N{i}.md", f"第 {i} 條") for i in range(7)]
+    over = [b for b in bs if isinstance(b, dict) and b.get("state") == "unknown" and "上限" in (b.get("why") or "")]
+    check("④超過 6 個不同提交:多的判不了「超過上限」", len(over) >= 1 and all(isinstance(b, dict) for b in bs), bs)
+    ng = Path(tempfile.mkdtemp(prefix="gctl-born-nogit-"))
+    shutil.copytree(root / "docs", ng / "docs")
+    _nh_node(ng, "St", summary="FLOW:s", body="REVISIT:[when-status:Projects/退款_計劃=doing][by:2099-12-31] 不是 git 專案")
+    got, txt = _born_scan(ng)
+    b = _born_of(got, "Systems/St.md", "不是 git 專案")
+    check("⑤不是 git 專案:判不了、scan 照常列", isinstance(b, dict) and b.get("state") == "unknown", (b, got, txt[-600:]))
+
+
+_CT_PY = (
+    "from enum import Enum, auto\n"
+    "STATES = (\"a\", \"b\", \"c\")\n"
+    "KINDS = [\"x\", \"y\"]\n"
+    "SETS = {\"p\", \"q\", \"p\"}\n"
+    "D = {\"k1\": 1, \"k2\": 2}\n"
+    "FS = frozenset({\"a\", \"b\", \"c\", \"d\"})\n"
+    "class Color(Enum):\n"
+    "    RED = auto()\n"
+    "    GREEN = auto()\n"
+    "    BLUE = auto()\n"
+)
+
+
+def _ct_repo(body, files=None, summary="KEY:x"):
+    """數量標記的測試專案:_dr_repo + src/st.py(各種具名集合)+ 一篇 Cnt 筆記;回 (root, vault)。"""
+    root = _dr_repo()
+    _nh_file(root, "src/st.py", _CT_PY)
+    for rel, txt in (files or {}).items():
+        _nh_file(root, rel, txt)
+    _nh_node(root, "Cnt", body=body, summary=summary)
+    _nh_commit(root, "count")
+    return root, root / "docs" / "kg-knowledge"
+
+
+def _ct_scan(vault, *extra):
+    import json as _j
+    r = run(vault, "drift", "scan", "--json", *extra)
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        return None, r.stdout + r.stderr
+    return d, None
+
+
+def _ct_line(vault, needle):
+    """Cnt 筆記裡含 needle 那一行的行號(1 起算)。"""
+    lines = (vault / "Systems" / "Cnt.md").read_text(encoding="utf-8").split("\n")
+    return next(i for i, ln in enumerate(lines, 1) if needle in ln)
+
+
+def t_count_tag_scan():
+    """[S1] [count:路徑::名稱=N] 指到元組、清單、集合、字典、frozenset(…)、列舉類別:數字對不上 drift scan 列 kind=count
+    (帶 claimed/actual),吻合的不列;工作目錄與 --at 都判得出。
+
+    翻紅釘:scan 不跑數量標記 → ①紅;集合不去重 → ①紅(SETS 會變成 3≠2);列舉數成 0 → ①紅。"""
+    print("t_count_tag_scan")
+    body = ("有 3 種狀態 [count:src/st.py::STATES=3]\n"
+            "有 5 種類型 [count:src/st.py::KINDS=5]\n"
+            "集合 2 個 [count:src/st.py::SETS=2]\n"
+            "字典 3 個鍵 [count:src/st.py::D=3]\n"
+            "凍結 4 個 [count:src/st.py::FS=4]\n"
+            "顏色 2 種 [count:src/st.py::Color=2]\n")
+    root, vault = _ct_repo(body)
+    for extra in ((), ("--at", "HEAD")):
+        d, err = _ct_scan(vault, *extra)
+        got = sorted((f["text"].split(" [")[0], f["count"]["claimed"], f["count"]["actual"])
+                     for f in (d or {}).get("findings", []) if f["kind"] == "count")
+        want = [("字典 3 個鍵", 3, 2), ("有 5 種類型", 5, 2), ("顏色 2 種", 2, 3)]
+        check(f"①對不上的列成 count、吻合的不列({'工作目錄' if not extra else '--at'})", got == want, str(got) + str(err or ""))
+    t = run(vault, "drift", "scan").stdout
+    check("②文字輸出有 [count] 那一段與寫幾、現在幾", "[count]" in t and "寫 5、現在是 2" in t, t[-1200:])
+
+
+def t_count_tag_unknown():
+    """[S2] 判不了的一律列成問題、講原因,不列成對不上:名稱找不到、指派不只一次、不是字面值集合、含展開、非常數成員、
+    列舉別名、不是 Python、檔不在、檔案解不開、沒帶路徑、數字寫錯。
+
+    翻紅釘:找不到名稱當成 0 → 列成對不上,①紅。"""
+    print("t_count_tag_unknown")
+    u = ("from enum import Enum\n"
+         "X = (1,)\nX = (1, 2)\n"
+         "Y = make()\n"
+         "Z = (*STATES, 3)\n"
+         "W = {a, b}\n"
+         "class E(Enum):\n    A = 1\n    B = 1\n"
+         "from enum import Flag\n"
+         "class F(Flag):\n    A = 1\n    B = 2\n    C = 3\n"
+         "class P(Enum):\n    _priv = 1\n    X = 2\n"
+         "class G(Enum):\n    _ignore_ = ['tmp']\n    tmp = 5\n    Q = 1\n"
+         "M = {'a'}\nM |= {'b'}\n"
+         "L = ['a']\nL.append('b')\n"
+         "import enum\n"
+         "class MA(enum.Enum):\n    A = B = 1\n"
+         "class TA(enum.Enum):\n    A, B = 1, 2\n"
+         "class IB(enum.Enum):\n    A = 1\n    if True:\n        B = 2\n"
+         "class AD(enum.IntEnum):\n    A = enum.auto()\n    B = 1\n"
+         "R1 = (1, 2, 3)\ntry:\n    import nonexistent\nexcept ImportError:\n    R1 = (1,)\n"
+         "R2 = (1, 2, 3)\ndef reload():\n    global R2\n    R2 = (1,)\n"
+         "R3 = (1, 2, 3)\nR3, R9 = (1,), 2\n"
+         "R4 = (1, 2, 3)\ndel R4\n"
+         "R5 = [1, 2, 3]\nR5.__iadd__([4])\n"
+         "V1 = (1, 2, 3)\ndef fv(a=(V1 := (1,))):\n    pass\n"
+         "V2 = (1, 2, 3)\nclass CV((V2 := object)):\n    pass\n"
+         "V3 = (1, 2, 3)\nmatch (7,):\n    case [V3]:\n        pass\n"
+         "V4 = (1, 2, 3)\ntry:\n    raise ValueError\nexcept ValueError as V4:\n    pass\n")
+    cases = [("[count:src/u.py::NOPE=1]", "找不到"), ("[count:src/u.py::X=2]", "不只一次"),
+             ("[count:src/u.py::Y=1]", "不是字面值"), ("[count:src/u.py::Z=3]", "展開"),
+             ("[count:src/u.py::W=2]", "不是常數"), ("[count:src/u.py::E=2]", "別名"),
+             ("[count:src/a.js::K=1]", "Python"), ("[count:src/missing.py::K=1]", "不在"),
+             ("[count:src/bad.py::K=1]", "解不開"), ("[count:K=1]", "路徑"), ("[count:src/u.py::X=abc]", "整數"),
+             # 代碼審 code-數量標記檢查 r1 正確性席 F1、F4、F5:Flag 組合值、底線開頭的成員、_ignore_、定義後又被改過、數字太長
+             ("[count:src/u.py::F=2]", "Flag"), ("[count:src/u.py::P=2]", "底線"), ("[count:src/u.py::G=1]", "_ignore_"),
+             ("[count:src/u.py::M=2]", "改過"), ("[count:src/u.py::L=2]", "改過"),
+             ("[count:src/u.py::X=" + "9" * 5000 + "]", "整數"),
+             # 代碼審 code-數量標記檢查-2 r2 正確性席 F1–F3:列舉本體看不懂的語句、auto() 與明寫值混用、名稱在別處被重新綁定
+             ("[count:src/u.py::MA=1]", "看不懂"), ("[count:src/u.py::TA=2]", "看不懂"), ("[count:src/u.py::IB=2]", "看不懂"),
+             ("[count:src/u.py::AD=1]", "auto"), ("[count:src/u.py::R1=1]", "改過"), ("[count:src/u.py::R2=1]", "改過"),
+             ("[count:src/u.py::R3=1]", "改過"), ("[count:src/u.py::R4=3]", "改過"), ("[count:src/u.py::R5=4]", "改過"),
+             # 代碼審 code-數量標記檢查-2 r3 正確性席 F2、F3:函式預設值與類別基底裡的海象、match 捕捉、except as 也會重新綁定
+             ("[count:src/u.py::V1=1]", "改過"), ("[count:src/u.py::V2=3]", "改過"), ("[count:src/u.py::V3=3]", "改過"),
+             ("[count:src/u.py::V4=3]", "改過"),
+             # code-數量標記檢查-3 r1 正確性席 F2:星號 import 可能蓋掉名稱,名稱卻不出現
+             ("[count:src/s.py::S=2]", "改過")]
+    body = "".join(f"第{i}條 {tag}\n" for i, (tag, _w) in enumerate(cases))
+    root, vault = _ct_repo(body, files={"src/u.py": u, "src/a.js": "const K = [1];\n", "src/bad.py": "def (:\n",
+                                        "src/s.py": "S = (1, 2)\nfrom os import *\n"})
+    d, err = _ct_scan(vault)
+    found = [f for f in (d or {}).get("findings", []) if f["kind"] == "count"]
+    check("①判不了的一條都不列成對不上", d is not None and not found, str(found) + str(err or ""))
+    probs = (d or {}).get("problems", [])
+    for i, (tag, word) in enumerate(cases):
+        hit = [p["why"] for p in probs if p["text"].startswith(f"第{i}條 ")]
+        check(f"②{tag} 列成問題、原因講「{word}」", len(hit) == 1 and word in hit[0], str(hit))
+
+
+def t_inline_visible_single_source():
+    """_strip_inline_markup 重構後跟舊公式逐字一樣(含原文本來就有的 NUL),位置不動版本拿掉被遮的字後也一樣
+    (代碼審 code-數量標記檢查-2 r3 架構對齊席 Z1 抽出唯一本體;code-數量標記檢查-3 r1 正確性席 F1:原本用 NUL 當遮罩,
+    原文的 NUL 也被刪)。
+
+    翻紅釘:改回用 NUL 遮罩再整串刪 NUL → ②紅;兩邊任一支自己算 → ①或③紅。"""
+    print("t_inline_visible_single_source")
+    import random
+    m = _load_lumos_inproc()
+
+    def old(line):
+        t = m.INLINE_CODE_RE.sub("", m._DOUBLE_BACKTICK_RE.sub("", line))
+        return (t.split("`", 1)[0], True) if "`" in t else (t, False)
+    rnd = random.Random(20261004)
+    alpha = ["`", "``", "```", "a", "5", " ", "[count:x.py::K=5]", "\n", "\0"]
+    bad, dbl, unclosed = [], 0, 0
+    for _ in range(20000):
+        ln = "".join(rnd.choice(alpha) for _ in range(rnd.randint(0, 12)))
+        dbl += "``" in ln
+        unclosed += old(ln)[1]
+        mask = m._inline_visible_mask(ln)
+        if m._strip_inline_markup(ln) != old(ln) or len(mask) != len(ln):
+            bad.append(ln)
+    check("前提:隨機樣本裡雙反引號與未閉合反引號都夠多", dbl > 1000 and unclosed > 1000, (dbl, unclosed))
+    check("①重構後跟舊公式逐字一樣、遮罩版長度不變", not bad, [repr(b) for b in bad[:3]])
+    check("②原文本來就有的 NUL 照留", m._strip_inline_markup("[test:a\0b]") == ("[test:a\0b]", False))
+    check("③遮罩版只遮行內程式碼", m._inline_visible_mask("a `b` c") == "a \0\0\0 c")
+
+
+def t_count_tag_places():
+    """[S3] 圍欄與行內程式碼裡的標籤不評估;表格行照評估;已標 [status:superseded] 的摘要行不評估。
+
+    翻紅釘:不剝行內程式碼 → 多一筆,①紅;跳過表格行 → 少一筆,①紅。"""
+    print("t_count_tag_places")
+    body = ("```\n範例 [count:src/st.py::KINDS=9]\n```\n"
+            "行內 `[count:src/st.py::KINDS=9]` 不算\n"
+            "| 欄 | 表格裡 [count:src/st.py::KINDS=9] |\n")
+    summary = "KEY:舊的 [count:src/st.py::KINDS=9] [status:superseded] [被取代:無 測試]"
+    root, vault = _ct_repo(body, summary=summary)
+    d, err = _ct_scan(vault)
+    got = [f["text"] for f in (d or {}).get("findings", []) if f["kind"] == "count"]
+    check("①只有表格行那一筆", len(got) == 1 and got[0].startswith("| 欄 |"), str(got) + str(err or ""))
+
+
+def t_count_tag_doctor():
+    """[S4] doctor 存量漂移段列數量標記總數與寫錯的處數;不評估數字、不影響結束碼。
+
+    翻紅釘:Z 段不數標籤 → ①紅;doctor 去評估數字 → ③紅(會印「對不上」)。"""
+    print("t_count_tag_doctor")
+    root, vault = _ct_repo("無標籤\n")
+    rc0 = run(vault, "doctor").returncode
+    (vault / "Systems" / "Cnt.md").write_text(
+        (vault / "Systems" / "Cnt.md").read_text(encoding="utf-8")
+        + "有 5 種 [count:src/st.py::KINDS=5]\n寫錯 [count:K=1]\n", encoding="utf-8")
+    rd = run(vault, "doctor")
+    check("①Z 段列數量標記總數與寫錯的", "數量標記 2 處" in rd.stdout and "寫錯的 1 處" in rd.stdout, rd.stdout[-1500:])
+    check("②不影響結束碼", rd.returncode == rc0, (rc0, rd.returncode))
+    check("③doctor 不評估數字", "寫 5、現在是 2" not in rd.stdout, rd.stdout[-600:])
+
+
+def t_count_tag_fix():
+    """[S5] drift fix --kind count 把標籤與句子裡恰好一個的舊數字改成現值、記修復帳;句子裡的舊數字找不到或不只一個擋下不寫;
+    已吻合回報不用改;drift ack --kind count 讓那一筆列在已表態。
+
+    翻紅釘:只改標籤不改句子 → ①紅;句子有兩個舊數字也照改 → ③紅。"""
+    print("t_count_tag_fix")
+    body = ("有 5 種類型 [count:src/st.py::KINDS=5]\n"
+            "共 5 項另有 5 個 [count:src/st.py::STATES=5]\n"
+            "沒有數字的句子 [count:src/st.py::D=5]\n"
+            "已經對 3 種 [count:src/st.py::FS=4]\n"
+            "對的 4 個 [count:src/st.py::FS=4]\n"
+            "空白版 5 種 [count:src/st.py::KINDS = 5]\n"
+            "前導零 5 種 [count:src/st.py::KINDS=05]\n"
+            "見 F5 說明有5種 [count:src/st.py::KINDS=5] 範例 `[count:src/st.py::KINDS=5]`\n"
+            "2026-10-04 起共十種 [count:src/st.py::STATES=10]\n"
+            "共 ``5`` 種 [count:src/st.py::FS=5]\n"
+            "夾程式碼 5 種 [count:src/st.py::KINDS``x``=5]\n")
+    root, vault = _ct_repo(body)
+    p = vault / "Systems" / "Cnt.md"
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "有 5 種類型")), "--kind", "count")
+    txt = p.read_text(encoding="utf-8")
+    check("①標籤與句子裡的數字一起改成現值", rc == 0 and "有 2 種類型 [count:src/st.py::KINDS=2]" in txt, out + txt[-400:])
+    rows = _df_rows(root)
+    check("②記修復帳 kind=count", rows and rows[-1].get("kind") == "count", str(rows[-1:]))
+    before = p.read_bytes()
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "共 5 項")), "--kind", "count")
+    check("③句子裡舊數字不只一個 → 擋下不寫", rc == 2 and p.read_bytes() == before and "不只一個" in out, out)
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "沒有數字的句子")), "--kind", "count")
+    check("④句子裡找不到舊數字 → 擋下不寫", rc == 2 and p.read_bytes() == before and "找不到" in out, out)
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "對的 4 個")), "--kind", "count")
+    check("⑤已吻合 → 回報不用改、不寫", rc != 0 and p.read_bytes() == before and "不用改" in out, out)
+    ln = _ct_line(vault, "共 5 項")
+    r = run(vault, "drift", "ack", "Systems/Cnt", str(ln), "--kind", "count", "--reason", "這句講的是另一件事")
+    d, err = _ct_scan(vault)
+    acked = [f for f in (d or {}).get("findings", []) if f["kind"] == "count" and f["line"] == ln]
+    check("⑥表態後那一筆列在已表態", r.returncode == 0 and acked and acked[0]["acked"] is True, r.stdout + r.stderr + str(acked))
+    # 代碼審 code-數量標記檢查 r1 正確性席 F2:標籤寫成 = 5、=05 時原本只改了句子、標籤沒動,寫進去才在驗證時擋下
+    for needle, want in (("空白版", "空白版 2 種 [count:src/st.py::KINDS=2]"), ("前導零", "前導零 2 種 [count:src/st.py::KINDS=2]")):
+        rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, needle)), "--kind", "count")
+        check(f"⑦{needle}的標籤照樣改到、整行一致", rc == 0 and want in p.read_text(encoding="utf-8"), out)
+    # F3:句子裡的 F5 是識別碼不是數量;行內程式碼裡的範例標籤不能跟著改
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "見 F5")), "--kind", "count")
+    line = p.read_text(encoding="utf-8").split("\n")[_ct_line(vault, "見 F5") - 1]
+    check("⑧識別碼 F5 與行內程式碼裡的範例不動", rc == 0 and line == "見 F5 說明有2種 [count:src/st.py::KINDS=2] 範例 `[count:src/st.py::KINDS=5]`", out + line)
+    # 代碼審 code-數量標記檢查-2 r2 正確性席 F4、F5:日期裡的數字、雙反引號裡看不見的數字都不是句子數字 → 找不到、擋下不寫
+    for needle in ("2026-10-04 起", "共 ``5`` 種"):
+        before = p.read_bytes()
+        rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, needle)), "--kind", "count")
+        check(f"⑨{needle}:句子裡沒有看得見的舊數字 → 擋下不寫", rc == 2 and p.read_bytes() == before and "找不到" in out, out)
+    # r3 正確性席 F1:標籤裡夾行內程式碼,原本把遮罩字元寫進筆記
+    before = p.read_bytes()
+    rc, out = _df_fix(vault, "Systems/Cnt", str(_ct_line(vault, "夾程式碼")), "--kind", "count")
+    check("⑩標籤裡夾行內程式碼 → 擋下不寫、不寫進遮罩字元", rc == 2 and p.read_bytes() == before and b"\x00" not in p.read_bytes(), out)
+
+
+def t_drift_born_reads_stop_at_boundary():
+    """[S4] 一篇筆記歷史很長、這一世只在最近幾版:版本讀取碰到邊界就停,不讀完整段歷史(一次 32 版)。
+
+    翻紅釘:一次讀完全部版本 → 讀到的版本數 = 歷史長度(80 以上)。"""
+    print("t_drift_born_reads_stop_at_boundary")
+    m = _load_lumos_inproc()
+    root = _dr_repo()
+    _nh_file(root, "src/a.py", "x = 1\n")
+    for i in range(80):
+        _nh_node(root, "Pay", summary="FLOW:a", body=f"第 {i} 版")
+        _nh_commit(root, f"v{i}")
+    _nh_node(root, "Pay", summary="FLOW:a", body="第 80 版\nREVISIT:[when-file:src/a.py][by:2099-12-31] 最近才寫")
+    _nh_commit(root, "寫下")
+    w = _na_head(root)
+    _nh_node(root, "Pay", summary="FLOW:a", body="第 81 版\nREVISIT:[when-file:src/a.py][by:2099-12-31] 最近才寫")
+    _nh_commit(root, "再改")
+    head = _na_head(root)
+    tenv = m._drift_tree_env(root, head, "docs/kg-knowledge")
+    line = next(no for no, _t, _pr in m._probe_lines(m.env_text(tenv, "Systems/Pay.md"))[0])
+    f = {"kind": "probe", "path": "Systems/Pay.md", "line": line, "text": "REVISIT:[when-file:src/a.py][by:2099-12-31] 最近才寫",
+         "related": [], "why": "x"}
+    real, seen = m._nodehome_cat_blobs, []
+
+    def spy(repo_root, specs, timeout=60):
+        seen.extend(s for s in specs if s.endswith(":docs/kg-knowledge/Systems/Pay.md"))
+        return real(repo_root, specs, timeout=timeout)
+    m._nodehome_cat_blobs = spy
+    try:
+        m._drift_born_annotate(root, head, "docs/kg-knowledge", tenv, [f])
+    finally:
+        m._nodehome_cat_blobs = real
+    check("①找對寫下那一版", (f.get("born") or {}).get("commit") == w, f.get("born"))
+    check("①讀到的版本數不超過一段(32)", 0 < len(seen) <= 32, len(seen))
+    check("②上限跟列樹快取連動:留兩格給終點(代碼審 r1 架構對齊席 Z4)",
+          m._DRIFT_BORN_MAX_COMMITS == m._DRIFT_LS_CACHE_MAX - 2, getattr(m, "_DRIFT_LS_CACHE_MAX", None))
 
 
 def t_drift_when_probes_evaluate_and_trigger():
@@ -57064,11 +60335,11 @@ def t_note_audit_reread_check_reminds():
     _rr_touch(root, _rr_note("A"), "A 追加的一行")
     _nh_commit(root, "r")
     rng = f"{base}..{_na_head(root)}"
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, o, e = _rr(root, "reread-check", "--diff", rng)
     check("①頂端沒有紀錄資料夾:照樣列出那篇、印帶同一組參數的指令、記 reminded、回 0、只走標準輸出、最後一行是不擋那句",
           rc == 0 and e == "" and "Systems/A.md" in o and f"reread-prepare --diff {rng} --orchestrator <claude 或 codex>" in o
-          and _rr_kinds(_ns_gov(root)[n0:]) == ["reminded"] and o.strip().splitlines()[-1] == "這只是提醒、不擋,忽略照推也可以",
+          and _rr_kinds(_gov_since(_ns_gov(root), n0)) == ["reminded"] and o.strip().splitlines()[-1] == "這只是提醒、不擋,忽略照推也可以",
           f"rc={rc}\n{o}\n{e}")
     rc, o, e = _rr(root, "reread-check", "--diff", rng, "--push-remote", "origin", "--pushed-ref", "refs/heads/feat")
     check("②帶推送參數時,印的指令原樣帶 --push-remote 與 --pushed-ref",
@@ -57079,10 +60350,10 @@ def t_note_audit_reread_check_reminds():
     rc, o, e = _rr(root, "reread-check", "--diff", rng)
     check("③紀錄只在工作目錄、沒提交 → 不算,照列並講還沒提交", rc == 0 and "Systems/A.md" in o and "還沒提交" in o, o + e)
     _nh_commit(root, "records")
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, o, e = _rr(root, "reread-check", "--diff", f"{base}..HEAD")
     check("④紀錄提交進被推的頂端 → 全對照過、記 covered", rc == 0 and "都對照過" in o and "Systems/A.md" not in o
-          and _rr_kinds(_ns_gov(root)[n0:]) == ["covered"], o + e)
+          and _rr_kinds(_gov_since(_ns_gov(root), n0)) == ["covered"], o + e)
     _rr_touch(root, _rr_note("A"), "照判定改了筆記")
     _nh_commit(root, "fix note per verdict")
     rc, o, e = _rr(root, "reread-check", "--diff", f"{base}..HEAD")
@@ -57094,9 +60365,9 @@ def t_note_audit_reread_check_reminds():
     b6 = _na_head(root)
     _rr_touch(root, "src/c.py")
     _nh_commit(root, "c only")
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, o, e = _rr(root, "reread-check", "--diff", f"{b6}..HEAD")
-    check("⑦沒候選 → 印一句、記 none", rc == 0 and "這次沒有要對照的家筆記" in o and _rr_kinds(_ns_gov(root)[n0:]) == ["none"], o + e)
+    check("⑦沒候選 → 印一句、記 none", rc == 0 and "這次沒有要對照的家筆記" in o and _rr_kinds(_gov_since(_ns_gov(root), n0)) == ["none"], o + e)
     bare = Path(tempfile.mkdtemp(prefix="gctl-rr-bare-")) / "r.git"
     sp.run(["git", "init", "-q", "--bare", str(bare)], capture_output=True)
     r2, _b = _rr_repo()
@@ -57179,20 +60450,20 @@ def t_note_audit_reread_check_never_blocks():
     rng = f"{base}..{tip}"
 
     def judge(label, r, rc, o, e, n0, want="skipped", word="這次沒提醒:"):
-        new = _ns_gov(r)[n0:]
+        new = _gov_since(_ns_gov(r), n0)
         check(f"{label}:印「{word}」、回 0、只走標準輸出、閘 note-reread 恰好一筆 {want}、不寫 note-audit",
               rc == 0 and word in o and e == "" and _rr_kinds(new) == [want]
               and not any(x.get("gate") == "note-audit" for x in new), f"rc={rc}\n{o}\n{e}\n{new}")
 
     def sub(label, *args, r=root, want="skipped", word="這次沒提醒:"):
-        n0 = len(_ns_gov(r))
+        n0 = _ns_gov(r)
         rc, o, e = _rr(r, "reread-check", *args)
         judge(label, r, rc, o, e, n0, want, word)
 
     def inproc(label, patch, want="skipped", word="這次沒提醒:", **kw):
         g = m.cmd_note_audit_reread_check.__globals__
         saved = {k: g[k] for k in patch}
-        n0 = len(_ns_gov(root))
+        n0 = _ns_gov(root)
         so, se = io.StringIO(), io.StringIO()
         try:
             g.update(patch)
@@ -57419,10 +60690,10 @@ def t_note_audit_reread_mode_and_isolation():
     _rr_touch(root, "src/a.py")
     _rr_touch(root, _rr_note("A"), "追加")
     _nh_commit(root, "r")
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, o, e = _rr(root, "reread-check", "--diff", f"{base}..HEAD")
     check("①off:印一行、回 0、不寫帳", rc == 0 and len(o.strip().splitlines()) == 1 and "關掉了回頭重讀提醒" in o
-          and len(_ns_gov(root)) == n0, o + e)
+          and len(_ns_gov(root)) == len(n0), o + e)
     for label, raw, word in (("block", {"note_reread": {"gate": "block"}}, "轉擋還沒做"),
                              ("壞值", {"note_reread": {"gate": "nope"}}, "只能是 block/warn/off"),
                              ("null", {"note_reread": {"gate": None}}, "null"),
@@ -57743,9 +61014,9 @@ def t_note_audit_reread_non_utf8_path_logs():
     bad = _os.fsdecode(f"{_NA_VAULT}/Systems/ba".encode() + b"\xff" + b"d.md")
     _rr_index_add(root, bad, (root / _rr_note("C")).read_bytes())
     _rr_commit_index(root, "non-utf8 name", "src/c.py")
-    n0 = len(_ns_gov(root))
+    n0 = _ns_gov(root)
     rc, o, e = _rr(root, "reread-check", "--diff", f"{base}..HEAD")
-    new = [x for x in _ns_gov(root)[n0:] if x.get("gate") == "note-reread"]
+    new = [x for x in _gov_since(_ns_gov(root), n0) if x.get("gate") == "note-reread"]
     check("非 UTF-8 檔名:照常列出、沒有「這次沒提醒」、治理帳恰好一筆 reminded、最後一行是不擋那句",
           rc == 0 and "還沒對照" in o and "這次沒提醒" not in o and [x.get("kind") for x in new] == ["reminded"]
           and o.strip().splitlines()[-1] == "這只是提醒、不擋,忽略照推也可以", f"rc={rc}\n{o}\n{e}\n{new}")
@@ -59705,9 +62976,7 @@ def t_delguard_scans_vendored_files_in_consumer():
         out = {}
     toks = {t for h in out.get("hits", []) for t in h["tokens"]}
     check("②工具檔刪掉的名稱照抽(不跳過工具自裝檔)", "zzVendoredOnlyFn" in toks, r.stdout + r.stderr)
-    log = root / "docs" / ".governance-log.jsonl"
-    rows = [_j.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x.strip()] if log.exists() else []
-    rows = [x for x in rows if x.get("gate") == "delguard"]
+    rows = [x for x in _gov_events_all(root / "docs") if x.get("gate") == "delguard"]   # ok 寫本機帳
     check("③治理事件 note 不帶 vendored-skip=", rows and "vendored-skip" not in rows[-1].get("note", ""), str(rows))
 
 
@@ -59748,7 +63017,7 @@ def t_doctor_revisit_marks_closed_issues():
         n_doc = len(seen)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            m._issue_close_revisits(m.Env(v), "Issues/已結案甲.md", "done")
+            m._closing_revisits(m.Env(v), "Issues/已結案甲.md", "done")
     finally:
         m._revisit_lines = orig
     check("③E5 與結案列出用同一支判定(_revisit_lines)", n_doc >= 4 and len(seen) == n_doc + 1 and "最老的一條" in buf.getvalue(),
@@ -59759,7 +63028,7 @@ def t_set_issue_closed_lists_revisits():
     """[S7] lumos set 或 drift fix --kind c2 --close 把 Issue 改成結案值:列出它全部的回頭條件行(程式碼區與行內程式碼裡的不算),
     不擋不改;行號用寫完之後的內容算。
 
-    翻紅釘:拿掉 main 裡 set 之後的 _issue_close_revisits → ①紅;只列到期的 → ①未來那條紅;不剝程式碼區 → ②紅;
+    翻紅釘:拿掉 main 裡 set 之後的 _closing_revisits → ①紅;只列到期的 → ①未來那條紅;不剝程式碼區 → ②紅;
     不看類型 → ③紅;c2 --close 不呼叫 → ④紅;行號用改之前的內容算 → ④行號紅。
     """
     print("t_set_issue_closed_lists_revisits")
@@ -59787,10 +63056,347 @@ def t_set_issue_closed_lists_revisits():
     _nh_file(root, f"{_DR_VAULT}/Issues/C.md", "---\ntype: issue\nstatus: open\n---\n# C\n第一段 [[Projects/Done_計劃]]\n"
              "REVISIT:2099-01-01 結案後要改的\n")
     _df_commit(root, "c")
-    rc, out = _df_fix(dv, "Issues/C", "3", "--kind", "c2", "--close", "--status", "done", "--reason", "修好了,提交 abc")
+    rc, out = _df_fix(dv, "Issues/C", "3", "--kind", "c2", "--close", "--status", "done", "--reason", "修好了,提交 abc",
+                      "--keep-revisits", "結案後還要回頭確認一次")
     cl = (dv / "Issues" / "C.md").read_text(encoding="utf-8").split("\n")
     n = next(i + 1 for i, l in enumerate(cl) if "結案後要改的" in l)
     check("④drift fix c2 --close 也列,行號是加了橫幅之後的", rc == 0 and f"Issues/C.md:{n}" in out and n == 10, out)
+
+
+def _c6_ln(path, marker):
+    """那篇裡第一個含 marker 的行號(1 起算);找不到回 0。"""
+    for i, l in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+        if marker in l:
+            return i
+    return 0
+
+
+def t_drift_c6_detects_pending_clause_to_settled_note():
+    """[S1] 未收尾的筆記有一行在同一子句裡寫了待定詞、又連到已收尾的筆記 → c6(related 是那篇);
+    被 。或 —— 隔開、已有「(已裁定:」、在程式碼圍欄裡、來源本身已收尾、只寫「待辦」、連到未收尾的 → 不列。
+
+    翻紅釘:不切子句 → 乙丙紅;詞表收「待辦」→ 戊紅;不剝程式碼圍欄 → 庚紅;不看來源狀態 → Old 紅;
+    剝行內程式碼 → 辛([todo] 在行內程式碼裡)紅;不看 summary → 摘要那行紅;切點漏全形分號 → 子紅(代碼審 r1 正確性席);
+    單行 summary 略過 → ④紅;doctor 漂移段不列 c6 → ⑤紅;全形引號裡只是在提這個詞也算 → 丑紅(上線自用時抓到的誤報)。
+    """
+    print("t_drift_c6_detects_pending_clause_to_settled_note")
+    root = _df_repo()
+    v = root / _DR_VAULT
+    _nh_file(root, f"{_DR_VAULT}/Issues/Res.md", "---\ntype: issue\nstatus: resolved\n---\n# Res\n已修\n")
+    _nh_file(root, f"{_DR_VAULT}/Projects/Open_計劃.md", "---\ntype: project\nstatus: doing\n---\n# Open\nx\n")
+    live = _nh_file(root, f"{_DR_VAULT}/Projects/Live_計劃.md",
+                    "---\ntype: project\nstatus: doing\nsummary: |-\n  KEY:摘要那行,等 [[Projects/Done_計劃]] 待裁定\n---\n# Live\n"
+                    "甲 排隊中,等 [[Projects/Done_計劃]] 落地後才執行\n"
+                    "乙 [[Projects/Done_計劃]] 已上線。這邊還沒做\n"
+                    "丙 等 [[Projects/Done_計劃]]——之後再排隊中\n"
+                    "丁 待裁定 [[Projects/Done_計劃]](已裁定:2026-10-01 好,見 [[Projects/Done_計劃]])\n"
+                    "戊 連鎖待辦單 [[Projects/Done_計劃]]\n"
+                    "己 還沒修 [[Issues/Res]]\n"
+                    "壬 待裁定 [[Projects/Open_計劃]]\n"
+                    "```\n庚 待裁定 [[Projects/Done_計劃]]\n```\n"
+                    "- [[Projects/Done_計劃]] `[todo]` — 辛 等評測尺\n"
+                    "子 [[Projects/Done_計劃]] 已上線；這邊還沒做\n"
+                    "丑 這個檢查認「待裁定」『排隊中』這類詞,見 [[Projects/Done_計劃]]\n")
+    _nh_file(root, f"{_DR_VAULT}/Projects/Old_計劃.md", "---\ntype: project\nstatus: done\n---\n# Old\n待裁定 [[Projects/Done_計劃]]\n")
+    one = _nh_file(root, f"{_DR_VAULT}/Projects/One_計劃.md", "---\ntype: project\nstatus: doing\n"
+                   "summary: KEY:單行摘要,等 [[Projects/Done_計劃]] 待裁定\n---\n# One\nx\n")
+    _nh_file(root, f"{_DR_VAULT}/Projects/Cm_計劃.md", "---\ntype: project\nstatus: doing\n"
+             "summary: # 只是註解 待裁定 [[Projects/Done_計劃]]\n---\n# Cm\nx\n")
+    _df_commit(root, "c6 cases")
+    fs = _df_find(v, "c6", "Projects/Live_計劃.md")
+    got = sorted(f["line"] for f in fs) if isinstance(fs, list) else fs
+    want = sorted(_c6_ln(live, m) for m in ("摘要那行", "甲 ", "己 ", "辛 "))
+    check("①同一子句有待定詞+連到已收尾的:摘要、甲、己、辛列出,乙丙丁戊庚壬子丑不列(子是全形分號隔開、丑是引號裡在提這個詞)", got == want,
+          f"got={got} want={want}")
+    check("④summary 只有註解那一行不算", _df_find(v, "c6", "Projects/Cm_計劃.md") == [], str(_df_find(v, "c6", "Projects/Cm_計劃.md")))
+    check("④summary 寫成單行值:那一行也看", [f["line"] for f in _df_find(v, "c6", "Projects/One_計劃.md")] == [_c6_ln(one, "單行摘要")],
+          str(_df_find(v, "c6", "Projects/One_計劃.md")))
+    r = run(v, "doctor", "--verbose")
+    check("⑤doctor 的漂移段列 c6", "[c6]" in r.stdout, r.stdout[-1500:])
+    rel = {f["line"]: f.get("related") for f in fs} if isinstance(fs, list) else {}
+    check("②related 是那一行命中的已收尾目標", rel.get(_c6_ln(live, "己 ")) == ["Issues/Res.md"]
+          and rel.get(_c6_ln(live, "甲 ")) == ["Projects/Done_計劃.md"], str(rel))
+    check("③來源本身已收尾的不列", _df_find(v, "c6", "Projects/Old_計劃.md") == [], "")
+
+
+
+def t_drift_c6_ignores_link_title_words():
+    """[c6 不看連結標題 S1] 連到標題含待定詞(「還沒做」)的已收尾筆記、連結外沒寫待定詞 → 不列;連結外寫了 → 照列;
+    別名裡的待定詞也不算(2026-10-06 rtb 盤點 1-1 的兩條誤報)。翻紅釘:判待定詞不遮連結 → ①③紅。"""
+    print("t_drift_c6_ignores_link_title_words")
+    root = _df_repo()
+    v = root / _DR_VAULT
+    _nh_file(root, f"{_DR_VAULT}/Issues/收據還沒做.md", "---\ntype: issue\nstatus: resolved\n---\n# 收據還沒做\n不做了\n")
+    live = _nh_file(root, f"{_DR_VAULT}/Projects/Moc_計劃.md",
+                    "---\ntype: project\nstatus: doing\n---\n# Moc\n"
+                    "寅 收據不做、已結案,見 [[Issues/收據還沒做]]\n"
+                    "卯 收據這邊還沒做,見 [[Issues/收據還沒做]]\n"
+                    "辰 見 [[Issues/收據還沒做|那件還沒做的事]]\n")
+    _df_commit(root, "c6 link title")
+    fs = _df_find(v, "c6", "Projects/Moc_計劃.md")
+    got = sorted(f["line"] for f in fs) if isinstance(fs, list) else fs
+    check("①連結標題裡的「還沒做」不算:寅不列", isinstance(got, list) and _c6_ln(live, "寅 ") not in got, str(fs))
+    check("②連結外真的寫了「還沒做」:卯照列", isinstance(got, list) and _c6_ln(live, "卯 ") in got, str(fs))
+    check("③別名裡的「還沒做」也不算:辰不列", isinstance(got, list) and _c6_ln(live, "辰 ") not in got, str(fs))
+
+
+def t_drift_fix_c6_appends_settled_bracket():
+    """[S2] drift fix --kind c6 --settled:待定子句結尾補「(已裁定:日期 結論,見 [[目標]])」、那行不再被列、修復帳 kind=c6;
+    兩個連結沒給 --by 回 2;表格行、沒有待定子句的行回 2;擋下都不寫檔。
+
+    翻紅釘:不要求 --by → ②紅;不擋表格行 → ③紅;括號沒帶連結 → ①紅;不寫修復帳 → ①帳那格紅;一律補在行尾 → ⑤紅;
+    已裁定括號整行算處理 → ⑥紅;切點漏全形分號 → ⑦紅(代碼審 r1 正確性席);括號內容參與子句判斷 → ⑧紅;
+    同目標兩個子句照補 → ⑨卡在「沒處理到」;不驗結論括號配對 → ⑩紅;單行 summary 照補 → ⑪紅(代碼審 r2 正確性席);
+    補進行內程式碼中間不擋 → ⑫紅(代碼審 r3 正確性席;⑩原本對已補過的行下指令,拿掉配對檢查也綠,改成對一行還是 c6 的)。
+    """
+    print("t_drift_fix_c6_appends_settled_bracket")
+    import datetime
+    today = datetime.date.today().isoformat()
+    root = _df_repo()
+    v = root / _DR_VAULT
+    _nh_file(root, f"{_DR_VAULT}/Issues/Res.md", "---\ntype: issue\nstatus: resolved\n---\n# Res\n已修\n")
+    p = _nh_file(root, f"{_DR_VAULT}/Projects/Live_計劃.md",
+                 "---\ntype: project\nstatus: doing\n---\n# Live\n"
+                 "甲 排隊中,等 [[Projects/Done_計劃]] 落地\n"
+                 "乙 待裁定 [[Projects/Done_計劃]] 與 [[Issues/Res]]\n"
+                 "| 丙 待裁定 | [[Projects/Done_計劃]] |\n"
+                 "丁 普通的一行 [[Projects/Done_計劃]]\n"
+                 "戊 排隊中,等 [[Projects/Done_計劃]] 落地後才執行(之前裁的)——後面還有很長的說明\n"
+                 "己 待裁定 [[Projects/Done_計劃]];還沒做 [[Issues/Res]]\n"
+                 "庚 排隊中,等 [[Projects/Done_計劃]] 落地；後面是別的事\n"
+                 "辛 待裁定 [[Projects/Done_計劃]] 落地;還沒做 [[Issues/Res]]\n"
+                 "壬 待裁定 [[Projects/Done_計劃]];還沒做 [[Projects/Done_計劃]] 的另一半\n"
+                 "癸 待裁定 [[Projects/Done_計劃]] 見 `a；b` 後\n"
+                 "子 待裁定 [[Projects/Done_計劃]]\n")
+    one = _nh_file(root, f"{_DR_VAULT}/Projects/One_計劃.md", "---\ntype: project\nstatus: doing\n"
+                   "summary: \"KEY:單行 待裁定 [[Projects/Done_計劃]]\"\n---\n# One\nx\n")
+    _df_commit(root, "c6 fix cases")
+    la, lb, lc, ld, le, lf, lg, lh, li, lj, lk = (_c6_ln(p, m) for m in ("甲 ", "乙 ", "丙 ", "丁 ", "戊 ", "己 ", "庚 ", "辛 ", "壬 ",
+                                                                         "癸 ", "子 "))
+    raw = p.read_bytes()
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lb), "--kind", "c6", "--settled", "兩邊都做完了")
+    check("②兩個連結沒給 --by:回 2、列出候選、不寫檔", rc == 2 and "--by" in out and p.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lc), "--kind", "c6", "--settled", "這邊已經做完了")
+    check("③表格行:回 2、不寫檔", rc == 2 and "表格" in out and p.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(ld), "--kind", "c6", "--settled", "這邊已經做完了")
+    check("③沒有待定子句的行:回 2、不寫檔", rc == 2 and "不是 c6" in out and p.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(la), "--kind", "c6", "--settled", "已落地,開始執行")
+    line = p.read_text(encoding="utf-8").split("\n")[la - 1]
+    check("①待定子句在行尾:括號補在行尾(帶連結)", rc == 0 and line == f"甲 排隊中,等 [[Projects/Done_計劃]] 落地"
+          f"(已裁定:{today} 已落地,開始執行,見 [[Projects/Done_計劃]])", out + line)
+    check("①那一行不再被列成 c6", la not in [f["line"] for f in _df_find(v, "c6", "Projects/Live_計劃.md")], "")
+    rows = _df_rows(root)
+    check("①修復帳多一行 kind=c6", rows and rows[-1]["kind"] == "c6" and rows[-1]["path"].endswith("Projects/Live_計劃.md"), str(rows[-1:]))
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lb), "--kind", "c6", "--settled", "上游已經修好", "--by", "Issues/Res",
+                      "--date", "2026-10-01")
+    line = p.read_text(encoding="utf-8").split("\n")[lb - 1]
+    check("④給了 --by 與 --date:括號用那篇與那天", rc == 0 and line.endswith("(已裁定:2026-10-01 上游已經修好,見 [[Issues/Res]])"), out + line)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(le), "--kind", "c6", "--settled", "已經落地了", "--date", "2026-10-02")
+    line = p.read_text(encoding="utf-8").split("\n")[le - 1]
+    check("⑤待定子句後面還有 —— 接的說明:括號補在 —— 之前,不跑到行尾", rc == 0 and line == "戊 排隊中,等 [[Projects/Done_計劃]] 落地後才執行(之前裁的)"
+          "(已裁定:2026-10-02 已經落地了,見 [[Projects/Done_計劃]])——後面還有很長的說明", out + line)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lf), "--kind", "c6", "--settled", "已經決定好了", "--by", "Projects/Done_計劃")
+    left = [f for f in _df_find(v, "c6", "Projects/Live_計劃.md") if f["line"] == lf]
+    check("⑥同一行兩個待定子句:補了一個,另一個(連到 Res)照樣列", rc == 0 and len(left) == 1
+          and left[0].get("related") == ["Issues/Res.md"], out + str(left))
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lg), "--kind", "c6", "--settled", "已經落地了", "--date", "2026-10-03")
+    line = p.read_text(encoding="utf-8").split("\n")[lg - 1]
+    check("⑦全形分號也是子句切點:括號補在「；」之前", rc == 0 and line == "庚 排隊中,等 [[Projects/Done_計劃]] 落地"
+          "(已裁定:2026-10-03 已經落地了,見 [[Projects/Done_計劃]])；後面是別的事", out + line)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lh), "--kind", "c6", "--settled", "先做A(該案裁定 d2)——其餘；還沒做",
+                      "--by", "Projects/Done_計劃")
+    left = [f for f in _df_find(v, "c6", "Projects/Live_計劃.md") if f["line"] == lh]
+    check("⑧結論裡有分號、——、待定詞與巢狀括號:括號整塊不參與判斷,修法成功、後面那個待定子句照列",
+          rc == 0 and len(left) == 1 and left[0].get("related") == ["Issues/Res.md"], out + str(left))
+    raw = p.read_bytes()
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(li), "--kind", "c6", "--settled", "兩半都做完了")
+    check("⑨同一行兩個待定子句連到同一篇:回 2、不寫檔,請人手改", rc == 2 and "手動改" in out and p.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lk), "--kind", "c6", "--settled", "括號(沒有收尾")
+    check("⑩結論括號沒配對(那一行本身是 c6):回 2、講要成對", rc == 2 and "要成對" in out and p.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Projects/Live_計劃", str(lj), "--kind", "c6", "--settled", "已經決定好了")
+    check("⑫補的位置落在行內程式碼裡:回 2、不寫檔,請人手改", rc == 2 and "行內程式碼" in out and p.read_bytes() == raw, out)
+    oraw = one.read_bytes()
+    rc, out = _df_fix(v, "Projects/One_計劃", str(_c6_ln(one, "單行")), "--kind", "c6", "--settled", "已經好了呢")
+    check("⑪單行 summary(可能有引號):回 2、不寫檔,請人手改", rc == 2 and "手動改" in out and one.read_bytes() == oraw, out)
+
+
+def t_drift_check_lists_c6_and_ack_binds_related():
+    """[S3] 推送讓 c6 的連結目標收尾 → drift check 只列出、不因 c6 擋;表態後又有另一個目標收尾 → 重新列出。
+
+    翻紅釘:c6 進 must → ①rc 紅;c6 不在綁清單的種類 → ③紅(舊表態永久豁免)。
+    """
+    print("t_drift_check_lists_c6_and_ack_binds_related")
+    root = _dr_repo(cfg={"drift_check": {"gate": "block"}})
+    v = root / _DR_VAULT
+    _nh_node(root, "Other_計劃", typ="project", folder="Projects", resp=None, summary="KEY:o")
+    live = _nh_file(root, f"{_DR_VAULT}/Projects/Live_計劃.md", "---\ntype: project\nstatus: doing\n---\n# Live\n"
+                    "待裁定 [[Projects/退款_計劃]] 與 [[Projects/Other_計劃]]\n")
+    _nh_commit(root, "base")
+    base = _na_head(root)
+    for name in ("退款_計劃",):
+        q = v / "Projects" / f"{name}.md"
+        q.write_text(q.read_text(encoding="utf-8").replace("status: doing", "status: done").replace("status/doing", "status/done"),
+                     encoding="utf-8")
+    _nh_commit(root, "收尾退款")
+    rc, out = _dr(root, "check", "--diff", f"{base}..HEAD")
+    check("①c6 只列出、不擋", rc == 0 and "只列出" in out and "Projects/Live_計劃.md" in out and "c6" in out, out)
+    ln = _c6_ln(live, "待裁定")
+    r = run(v, "drift", "ack", "Projects/Live_計劃", str(ln), "--kind", "c6", "--reason", "這句是當時的紀錄,照留")
+    _nh_commit(root, "ack")
+    left = [f for f in _df_find(v, "c6", "Projects/Live_計劃.md") if not f.get("acked")]
+    check("②表態之後 scan 不再列成要處理", r.returncode == 0 and left == [], r.stdout + r.stderr + str(left))
+    q = v / "Projects" / "Other_計劃.md"
+    q.write_text(q.read_text(encoding="utf-8").replace("status: doing", "status: done").replace("status/doing", "status/done"),
+                 encoding="utf-8")
+    _nh_commit(root, "收尾 Other")
+    fs = [f for f in _df_find(v, "c6", "Projects/Live_計劃.md") if not f.get("acked")]
+    check("③又有一個目標收尾:重新列出,related 兩篇", len(fs) == 1
+          and fs[0].get("related") == ["Projects/Other_計劃.md", "Projects/退款_計劃.md"], str(fs))
+
+
+def t_settle_backrefs_listed_after_close_and_decisions():
+    """[S4] set 收尾、drift fix c2 --close、decision-add、decision-supersede 成功後,列出連到那篇、同一子句有待定詞的行
+    與 c6 修法範本;回傳碼照舊、不改其他檔。
+
+    翻紅釘:main 拿掉 set 之後的列出 → ①紅;fix close 不呼叫 → ②紅;decision-add / supersede 不呼叫 → ③④紅;
+    列出時要求目標已收尾 → ③④紅(加決策不改狀態)。
+    """
+    print("t_settle_backrefs_listed_after_close_and_decisions")
+    root = _df_repo()
+    v = root / _DR_VAULT
+    _nh_node(root, "P_計劃", typ="project", folder="Projects", resp=None, summary="KEY:p")
+    _nh_file(root, f"{_DR_VAULT}/Issues/C.md", "---\ntype: issue\nstatus: open\n---\n# C\n第一段 [[Projects/Done_計劃]]\n")
+    ref = _nh_file(root, f"{_DR_VAULT}/Projects/Ref_計劃.md", "---\ntype: project\nstatus: doing\n---\n# Ref\n"
+                   "甲 待裁定 [[Projects/P_計劃]]\n乙 還沒做 [[Issues/C]]\n丙 未裁定 [[Systems/Pay]]\n")
+    _df_commit(root, "backref cases")
+    raw = ref.read_bytes()
+    r = run(v, "set", "Projects/P_計劃", "status", "done")
+    check("①set 收尾:列出 Ref 甲那行與 c6 修法範本", r.returncode == 0 and f"Projects/Ref_計劃.md:{_c6_ln(ref, '甲 ')}" in r.stdout
+          and "--kind c6" in r.stdout, r.stdout)
+    _df_commit(root, "P done")
+    rc, out = _df_fix(v, "Issues/C", "3", "--kind", "c2", "--close", "--status", "done", "--reason", "修好了,提交 abc")
+    check("②drift fix c2 --close:列出 Ref 乙那行", rc == 0 and f"Projects/Ref_計劃.md:{_c6_ln(ref, '乙 ')}" in out, out)
+    _df_commit(root, "C closed")
+    r = run(v, "decision-add", "Systems/Pay", "改用新做法", "--decided", "2026-10-05")
+    check("③decision-add:列出 Ref 丙那行(Pay 沒收尾也列)", r.returncode == 0
+          and f"Projects/Ref_計劃.md:{_c6_ln(ref, '丙 ')}" in r.stdout, r.stdout + r.stderr)
+    r = run(v, "decision-supersede", "Systems/Pay", "改用新做法", "--by", "再換一個")
+    check("④decision-supersede:列出 Ref 丙那行", r.returncode == 0
+          and f"Projects/Ref_計劃.md:{_c6_ln(ref, '丙 ')}" in r.stdout, r.stdout + r.stderr)
+    check("⑤只列出:Ref 一個位元組都沒動", ref.read_bytes() == raw, "")
+
+
+def t_drift_close_requires_decision_for_pending_line():
+    """[S5] c2 --close:摘要有含待定詞的 DECISION: 行又沒給 --decision → 回 2 不寫;給了就換成「DECISION:[今天] 新句」;
+    兩行以上待定、或沒有待定行卻給了 --decision → 回 2 不寫。
+
+    翻紅釘:不檢查 DECISION 行 → ①紅;--decision 不加日期 → ④紅;多行時換第一行 → ②紅;沒待定行也收 → ③紅。
+    """
+    print("t_drift_close_requires_decision_for_pending_line")
+    import datetime
+    today = datetime.date.today().isoformat()
+    root = _df_repo()
+    v = root / _DR_VAULT
+    def issue(name, decisions):
+        s = "".join(f"  DECISION:{d}\n" for d in decisions)
+        return _nh_file(root, f"{_DR_VAULT}/Issues/{name}.md", f"---\ntype: issue\nstatus: open\nsummary: |-\n  FLAG:TECHNICAL\n{s}---\n"
+                        f"# {name}\n第一段 [[Projects/Done_計劃]]\n")
+    i = issue("I", ["(未裁)要不要修另開計劃"])
+    j = issue("J", ["未裁——方向一", "還沒修,等上游"])
+    k = issue("K", ["[2026-09-01] 已決定照做"])
+    _df_commit(root, "decision cases")
+    args = ("--kind", "c2", "--close", "--status", "resolved", "--reason", "修好了,提交 abc")
+    raw = i.read_bytes()
+    rc, out = _df_fix(v, "Issues/I", "3", *args)
+    check("①待定決策行沒給 --decision:回 2、列出那行、不寫檔", rc == 2 and "(未裁)要不要修" in out and "--decision" in out
+          and i.read_bytes() == raw, out)
+    jraw = j.read_bytes()
+    rc, out = _df_fix(v, "Issues/J", "3", *args, "--decision", "決定不修了")
+    check("②兩行待定:回 2、不寫檔", rc == 2 and "一次只換一行" in out and j.read_bytes() == jraw, out)
+    kraw = k.read_bytes()
+    rc, out = _df_fix(v, "Issues/K", "3", *args, "--decision", "多給的一句結論")
+    check("③沒有待定行卻給了 --decision:回 2、不寫檔", rc == 2 and "不用 --decision" in out and k.read_bytes() == kraw, out)
+    rc, out = _df_fix(v, "Issues/I", "3", *args, "--decision", "還沒做,另開計劃")
+    check("⑤換上的新句還寫待定:回 2、不寫檔(代碼審 r1 正確性席)", rc == 2 and "待定" in out and i.read_bytes() == raw, out)
+    rc, out = _df_fix(v, "Issues/I", "3", *args, "--decision", "不修,改走設計審")
+    t = i.read_text(encoding="utf-8")
+    check("④給了 --decision:那一行換成帶今天日期的新句、照常結案", rc == 0 and f"  DECISION:[{today}] 不修,改走設計審\n" in t
+          and "(未裁)" not in t and "status: resolved" in t, out + t)
+
+
+def t_drift_close_blocks_live_revisits():
+    """[S6] c2 --close:還有沒結案的回頭條件又沒給 --keep-revisits → 回 2、列出每行、不寫;合格 [closed:] 的不算;
+    給了 --keep-revisits 照常結案、修復帳記理由與行號;沒有活的卻給了 → 回 2。
+
+    翻紅釘:不檢查回頭條件 → ①紅;[closed:] 的也算 → ②紅;不記理由 → ④帳那格紅;沒有活的也收 → ③紅。
+    """
+    print("t_drift_close_blocks_live_revisits")
+    root = _df_repo()
+    v = root / _DR_VAULT
+    def issue(name, extra):
+        return _nh_file(root, f"{_DR_VAULT}/Issues/{name}.md", f"---\ntype: issue\nstatus: open\n---\n# {name}\n"
+                        f"第一段 [[Projects/Done_計劃]]\n{extra}")
+    r_ = issue("R", "REVISIT:2099-01-01 未來的\nREVISIT:2020-01-01 已處理的 [closed:2026-09-01 早就處理完了]\n")
+    s_ = issue("S", "REVISIT:2020-01-01 已處理的 [closed:2026-09-01 早就處理完了]\n")
+    t_ = issue("T", "")
+    _df_commit(root, "revisit cases")
+    args = ("--kind", "c2", "--close", "--status", "done", "--reason", "修好了,提交 abc")
+    raw = r_.read_bytes()
+    rc, out = _df_fix(v, "Issues/R", "3", *args)
+    check("①有活的回頭條件沒給 --keep-revisits:回 2、列出那行、不寫檔", rc == 2 and "未來的" in out and "--keep-revisits" in out
+          and r_.read_bytes() == raw, out)
+    check("②已寫合格 [closed:] 的不列", "已處理的" not in out, out)
+    rc, out = _df_fix(v, "Issues/S", "3", *args)
+    check("②只有已結案的回頭條件:照常結案", rc == 0 and "status: done" in s_.read_text(encoding="utf-8"), out)
+    traw = t_.read_bytes()
+    rc, out = _df_fix(v, "Issues/T", "3", *args, "--keep-revisits", "上線後要回頭量")
+    check("③沒有活的卻給了 --keep-revisits:回 2、不寫檔", rc == 2 and "不用 --keep-revisits" in out and t_.read_bytes() == traw, out)
+    rc, out = _df_fix(v, "Issues/R", "3", *args, "--keep-revisits", "上線後要回頭量")
+    n = _c6_ln(r_, "未來的")
+    row = (_df_rows(root) or [{}])[-1]
+    check("④給了 --keep-revisits:照常結案、修復帳記理由與留下的行號", rc == 0 and "status: done" in r_.read_text(encoding="utf-8")
+          and row.get("keep_revisits") == {"reason": "上線後要回頭量", "lines": [n]}, out + str(row))
+
+
+def t_superseded_note_revisits_listed_and_marked():
+    """[S7] set 把任何類型改成 superseded → 列出全部沒結案的回頭條件;doctor E5 在作廢筆記那行標「(這篇已作廢)」;
+    計劃改成 done 不列不標。
+
+    翻紅釘:_closing_revisits 只認 Issue → ①紅;E5 不標作廢 → ③紅;done 計劃也列 → ②紅。
+    """
+    print("t_superseded_note_revisits_listed_and_marked")
+    v = mkvault()
+    sp = write(v, "Projects/S.md", "type: project\nstatus: doing", body="# S\nREVISIT:2020-01-01 過期的作廢\nREVISIT:2099-01-01 未來的作廢\n")
+    write(v, "Projects/D.md", "type: project\nstatus: doing", body="# D\nREVISIT:2020-01-02 過期的收尾\n")
+    yp = write(v, "Systems/Y.md", "type: system\nstatus: doing", body="# Y\nREVISIT:2099-01-01 系統未來的\n")
+    r = run(v, "set", "Projects/S", "status", "superseded")
+    check("①計劃改成 superseded:列出兩行", r.returncode == 0 and "作廢" in r.stdout
+          and f"Projects/S.md:{_c6_ln(sp, '過期的作廢')}" in r.stdout and f"Projects/S.md:{_c6_ln(sp, '未來的作廢')}" in r.stdout, r.stdout)
+    r = run(v, "set", "Systems/Y", "status", "superseded")
+    check("①系統筆記改成 superseded 也列", r.returncode == 0 and f"Systems/Y.md:{_c6_ln(yp, '系統未來的')}" in r.stdout, r.stdout)
+    r = run(v, "set", "Projects/D", "status", "done")
+    check("②計劃改成 done:不列", r.returncode == 0 and "還留著" not in r.stdout, r.stdout)
+    r = run(v, "doctor")
+    out = r.stdout + r.stderr
+    sl = [l for l in out.split("\n") if "過期的作廢" in l]
+    dl = [l for l in out.split("\n") if "過期的收尾" in l]
+    check("③E5:作廢筆記那行標「(這篇已作廢)」、done 計劃那行不標", sl and all("(這篇已作廢)" in l for l in sl)
+          and dl and not any("已作廢" in l for l in dl), "\n".join(sl + dl) or out[-1500:])
+
+
+def t_set_issue_close_lists_pending_decision():
+    """[S8] set 把 Issue 改成結案值、摘要還有含待定詞的 DECISION: 行 → 列出那幾行,回 0、不改那幾行。
+
+    翻紅釘:_closing_revisits 不列待定決策行 → ①紅;列的時候改了檔 → ②紅。
+    """
+    print("t_set_issue_close_lists_pending_decision")
+    v = mkvault()
+    p = write(v, "Issues/I.md", "type: issue\nstatus: open\nsummary: |-\n  FLAG:TECHNICAL\n  DECISION:(未裁)要不要修另開計劃",
+              body="# I\n第一段\n")
+    raw = p.read_text(encoding="utf-8")
+    r = run(v, "set", "Issues/I", "status", "resolved")
+    check("①列出待定決策行", r.returncode == 0 and "(未裁)要不要修" in r.stdout and "DECISION" in r.stdout, r.stdout)
+    check("②只列出:除了 status 一字不動", p.read_text(encoding="utf-8") == raw.replace("status: open", "status: resolved"), "")
 
 
 def t_drift_ack_binds_related_plans():
@@ -60506,18 +64112,32 @@ def _m1_run(root, rng, home=None, env=None):
     return _dr(root, "check", "--diff", rng, env=e)
 
 
-def _m1_events(root):
+def _gov_events_all(docs_dir):
+    """版控帳與本機帳(例行觀察,治理帳例行紀錄分流_計劃)合起來、依時間排序的事件——
+    驗「這筆有沒有記下來」用;驗「記在哪一本」的是 t_gov_split_* 那幾支。排序照 lumos 的 _gov_ledger_rows_by_time。"""
+    return _load_lumos()._gov_ledger_rows_by_time(Path(docs_dir))
+
+
+def _gov_since(after, before):
+    """after 比 before 多出來的事件(多重集合差,保留 after 的順序)。兩本帳依時間合併後,同一秒寫進不同本的事件
+    先後不固定,不能用「先數筆數、再取第 N 筆以後」抓新事件。"""
     import json as _j
-    p = root / "docs" / ".governance-log.jsonl"
+    left = {}
+    for e in before:
+        k = _j.dumps(e, sort_keys=True, ensure_ascii=False)
+        left[k] = left.get(k, 0) + 1
     out = []
-    for ln in (p.read_text(encoding="utf-8").splitlines() if p.is_file() else []):
-        try:
-            d = _j.loads(ln)
-        except ValueError:
-            continue
-        if d.get("check") == "old-sentence":
-            out.append(d)
+    for e in after:
+        k = _j.dumps(e, sort_keys=True, ensure_ascii=False)
+        if left.get(k):
+            left[k] -= 1
+        else:
+            out.append(e)
     return out
+
+
+def _m1_events(root):
+    return [d for d in _gov_events_all(root / "docs") if d.get("check") == "old-sentence"]
 
 
 def _m1_res(state="done", cand=3, handle=(), listed=(), **kw):
@@ -61611,14 +65231,16 @@ def t_drift_m1_review_r1_non_utf8_and_guard():
     orig = m._drift_old_sentence_check
     m._drift_old_sentence_check = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom-x"))
     try:
-        n0 = len(_m1_events(root))
+        ev0 = _m1_events(root)
         rc_w, out_w = guarded("warn")
-        e_w = _m1_events(root)[-1]
+        new_w = _gov_since(_m1_events(root), ev0)     # 同一秒寫進兩本的事件合讀後先後不固定,不取 [-1]
+        e_w = new_w[-1] if new_w else {}
         rc_b, out_b = guarded("block")
     finally:
         m._drift_old_sentence_check = orig
     check("②判定丟例外:warn 印判不了、rc 0、帳 state error", rc_w == 0 and "工具內部出錯" in out_w and "boom-x" in out_w
-          and len(_m1_events(root)) == n0 + 2 and e_w["state"] == "error" and e_w["kind"] == "warned", out_w + str(e_w))
+          and len(new_w) == 1 and len(_gov_since(_m1_events(root), ev0)) == 2
+          and e_w.get("state") == "error" and e_w.get("kind") == "warned", out_w + str(e_w))
     check("②block 照判不了的規矩擋、接略過指令", rc_b == 1 and "擋下:舊句檢查:工具內部出錯" in out_b
           and "LUMOS_SKIP_DRIFT_CHECK=1 git push" in out_b, out_b)
     orig_rep = m._drift_m1_report
@@ -62148,8 +65770,10 @@ def t_drift_m1_review_r3_long_lines_narrowed():
           in out, out[-600:])
     _m1_note(root, "Systems/B.md", "# B\n呼叫 `old_func_x` 做事。" + " " * 20000)
     _m1_commit(root, "related long")
+    before = _m1_events(root)
     rc, out = _m1_run(root, f"{base}..HEAD")
-    e = _m1_events(root)[-1]
+    # 不取 [-1]:第一次放行記本機帳、這次擋下記版控帳,同一秒寫的兩筆依時間合併後版控帳在前,[-1] 會拿到上一次的放行
+    e = _gov_since(_m1_events(root), before)[-1]
     blno = _m1_lno(root, "Systems/B.md", "old_func_x")
     check("③行內有消失的名稱:照判不了擋、帳 long_lines 1、印位置", rc == 1 and e["kind"] == "blocked" and e["long_lines"] == 1
           and e["long_lines_other"] == 1 and f"(行裡有這次消失的名稱、算判不了):Systems/B.md:{blno}" in out, out[-900:])
@@ -63153,8 +66777,7 @@ def t_doctor_p2_lists_survived():
     check("⑧配方指的檔之後改過 → 行尾帶「之後改過」", line_of("A") is not None and "(配方指的檔之後改過,先重跑)" in line_of("A"),
           "\n".join(lines))
     run(v, "doctor", "--ci")
-    gl = v.parent / ".governance-log.jsonl"
-    evs = [_json.loads(ln) for ln in gl.read_text(encoding="utf-8").splitlines() if ln.strip()] if gl.exists() else []
+    evs = _gov_events_all(v.parent)          # check-p2s/warned 寫本機帳
     sv = [e for e in evs if e.get("gate") == "check-p2s"]
     check("⑨--ci 記 check-p2s(warned、不硬擋、帶節點)", sv and all(e.get("kind") == "warned" and e.get("hard") is False
           and e.get("nodes") == ["Limit"] for e in sv) and m._KNOWN_GATES.count("check-p2s") == 1, str(sv)[:400])
@@ -63573,8 +67196,7 @@ def t_doctor_kill_recipe_drift():
     check("④verification/superseded/stale 的配方不列", not any(f in s for f in ("vfile.py", "supfile.py", "stlfile.py")), s)
     check("⑤合約片段帶 invariant 前 30 字(加引號)", '合約片段:"上限恆為5"' in s, s)
     run(v, "doctor", "--ci")
-    gl = v.parent / ".governance-log.jsonl"
-    evs = [_json.loads(ln) for ln in gl.read_text(encoding="utf-8").splitlines() if ln.strip()] if gl.exists() else []
+    evs = _gov_events_all(v.parent)          # check-p2/warned 寫本機帳
     p2ev = [e for e in evs if e.get("gate") == "check-p2"]
     check("⑥--ci 記 check-p2 事件(warned、不硬擋、帶節點)", p2ev and all(e.get("kind") == "warned" and e.get("hard") is False for e in p2ev)
           and {"Mix", "BadJ"} <= {n for e in p2ev for n in e.get("nodes", [])}, str(p2ev)[:400])
@@ -63620,10 +67242,9 @@ def t_doctor_kill_recipe_drift():
         "KEY:★INVARIANT★ 上限恆為5,超過必拒 [kill:recipes]"]), encoding="utf-8")
     s = p2(run(v, "doctor").stdout)
     check("⑩b 配方全是格式不對 → 也講設定檔讀不了", "設定檔讀不了:" in s and "配方欄位格式不對" in s, s)
-    gl = v.parent / ".governance-log.jsonl"
-    n0 = len(gl.read_text(encoding="utf-8").splitlines()) if gl.exists() else 0
+    n0 = _gov_events_all(v.parent)
     run(v, "doctor", "--ci")
-    evs = [_json.loads(ln) for ln in gl.read_text(encoding="utf-8").splitlines()[n0:] if ln.strip()] if gl.exists() else []
+    evs = _gov_since(_gov_events_all(v.parent), n0)
     check("⑩c 設定檔讀不了時 --ci 也記 check-p2", any(e.get("gate") == "check-p2" for e in evs), str(evs)[:300])
     # ⑩d 合約綁了 [test:] 時,設定檔讓 load_platforms 丟例外也不讓 doctor 整支崩潰(Check T 只跳過存在性檢查)
     (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("prod.py")]), encoding="utf-8")
@@ -64706,9 +68327,9 @@ def t_canary_regression_set():
     _sp.run(["git", "-C", str(root), "init", "-q"], capture_output=True)
     d = root / "docs"
     rep = d / "rep.md"
-    rep.write_text("severity: major\n## f1\nseverity: major\n## f2\nseverity: minor\n", encoding="utf-8")
+    rep.write_text("severity: major\n## f1\nseverity: major\n## f2\nseverity: minor\n引句:「這是測試載體可核對的完整凍結材料」\n", encoding="utf-8")
     snap = d / "snap.patch"
-    snap.write_text("diff\n", encoding="utf-8")
+    snap.write_text("這是測試載體可核對的完整凍結材料\n", encoding="utf-8")
 
     def rec(rnd, *extra, loop=("--loop", "rgs")):
         return run(v, "canary", "record", "none", *loop, "--round", rnd, "--auditor", "s1-sonnet",
@@ -64818,9 +68439,9 @@ def _fc_ledger(root, v, loop="code-fx", rnd="r1", findings="f1", folded="f1", ki
     d = root / "docs"
     rep = d / f"rep-{rnd}.md"
     ids = [x for x in findings.split(",") if x]
-    rep.write_text(f"severity: {severity}\n" + "".join(f"## {i}\nseverity: {severity}\n" for i in ids), encoding="utf-8")
+    rep.write_text(f"severity: {severity}\n" + "".join(f"## {i}\nseverity: {severity}\n" for i in ids) + "引句:「這是修正關卡載體可核對的完整凍結材料」\n", encoding="utf-8")
     snap = d / f"snap-{rnd}.patch"
-    snap.write_text("diff\n", encoding="utf-8")
+    snap.write_text("這是修正關卡載體可核對的完整凍結材料\n", encoding="utf-8")
     args = ["canary", "record", "none", "--loop", loop, "--round", rnd, "--auditor", "s1-sonnet", "--severity", severity,
             "--findings", str(len(ids)), "--report", str(rep), "--snapshot", str(snap), "--tier", "standard",
             "--findings-set", findings, "--folded-set", folded, "--refuted-set", "none", *extra]
@@ -65004,7 +68625,7 @@ def t_fix_check_listed_tests_green():
              "\ndef t_param_cap():\n    assert prod.clamp(9) == 5\n\nt_param_cap.cases = 3\n")
     root, v, base, head = _fc_env(tests_extra=extra)
     _fc_ledger(root, v)
-    _fc_record(root, base, [_fc_group(tests=["t_clamp_cap", "t_red_one", "t_fcdemo", "t_nosuch"])])
+    _fc_record(root, base, [_fc_group(tests=["t_clamp_cap", "t_red_one", "t_fcdemo"])])
     st0 = _fc_git(root, "status", "--porcelain").stdout
     r = _fc_check(root, v)
     out = r.stdout
@@ -65012,7 +68633,10 @@ def t_fix_check_listed_tests_green():
     check("②紅的寫出名字", "t_red_one:紅" in out, out[-1200:])
     check("③撞名附篩選匹配到", "t_fcdemo:" in out and "篩選匹配到" in out, out[-1200:])
     check("④綠的不報", "t_clamp_cap:" not in out, out[-1200:])
-    check("⑤第 3 項不存在的不再送去跑(只報一次)", out.count("t_nosuch") == 1, out[-1200:])
+    _fc_record(root, base, [_fc_group(tests=["t_clamp_cap", "t_nosuch"])])
+    missing = _fc_check(root, v)
+    check("⑤第 3 項不存在先回報、不啟動其餘測試", missing.returncode == 1
+          and missing.stdout.count("t_nosuch") == 1 and "未執行" in missing.stdout, missing.stdout[-1200:])
     wts = [ln for ln in _fc_git(root, "worktree", "list").stdout.splitlines()[1:] if ln.strip()]
     check("⑥沒有殘留工作樹", not wts, str(wts))
     st1 = "\n".join(ln for ln in _fc_git(root, "status", "--porcelain").stdout.splitlines() if ".governance-log" not in ln)
@@ -66272,6 +69896,4055 @@ def t_doctor_check3_bad_entry_cap_verbose_and_mixed_empty():
     write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"\n  - ""\n  - "#Systems/B"', body="# V\n")
     sec = _sr_check3(v)
     check("③空項混在好項裡也報空的項", "空的項" in sec, sec[-500:])
+
+def t_excl_lock_stale_takeover_is_single_owner():
+    """S1: 在兩個真程序間釘住舊版 stat→rename 的 ABA 交錯。"""
+    import os as _os
+    import subprocess as _sp
+    import time as _time
+    import json as _json
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        lock = root / "race.lock"
+        lock.write_text("99999999\n0", encoding="utf-8")
+        old = _time.time() - 1200
+        _os.utime(lock, (old, old))
+        ready, go = root / "ready", root / "go"
+        code = '''import importlib.util, json, os, sys, time
+from pathlib import Path
+from importlib.machinery import SourceFileLoader
+src, lock, ready, go = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("lock_child", str(src), loader=SourceFileLoader("lock_child", str(src)))
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+stat = Path.stat
+def paused(self, *args, **kwargs):
+    value = stat(self, *args, **kwargs)
+    if self == lock:
+        ready.write_text("ready")
+        for _ in range(500):
+            if go.exists():
+                break
+            time.sleep(.01)
+        else:
+            raise TimeoutError("parent did not release stat")
+    return value
+Path.stat = paused
+print(json.dumps({"pid": os.getpid(), "acquired": m._excl_lock_try(lock, 900)}))
+'''
+        child = _sp.Popen([sys.executable, "-c", code, GRAPHCTL, str(lock), str(ready), str(go)],
+                          stdout=_sp.PIPE, stderr=_sp.PIPE, text=True)
+        try:
+            reached = False
+            for _ in range(500):
+                if ready.exists():
+                    reached = True
+                    break
+                if child.poll() is not None:
+                    break
+                _time.sleep(.01)
+            parent_acquired = m._excl_lock_try(lock, 900)
+            go.write_text("go")
+            out, err = child.communicate(timeout=8)
+        finally:
+            go.write_text("go")
+            if child.poll() is None:
+                child.kill()
+                child.communicate(timeout=8)
+        check("過期鎖 S1 前置:舊碼到達 stat 間隙或新碼直接拒絕", reached or child.returncode == 0,
+              f"rc={child.returncode} err={err}")
+        result = _json.loads(out) if child.returncode == 0 else {}
+        check("過期鎖 S1 前置:競爭者是不同 PID", result.get("pid") not in (None, _os.getpid()), str(result))
+        check("過期鎖 S1:兩程序都拒絕接手且舊鎖不變",
+              parent_acquired is False and result.get("acquired") is False
+              and lock.exists() and lock.read_text(encoding="utf-8") == "99999999\n0",
+              f"parent={parent_acquired} child={result} lock={lock.read_text() if lock.exists() else 'missing'} err={err}")
+
+
+def t_excl_lock_existing_is_not_stolen():
+    """S2: 無法證明持有者已停時，不按年齡或 PID 偷鎖。"""
+    import os as _os
+    import time as _time
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        old = _time.time() - 1200
+        for name, pid in (("live", _os.getpid()), ("dead", 99999999)):
+            lock = root / f"{name}.lock"
+            value = f"{pid}\n0"
+            lock.write_text(value, encoding="utf-8")
+            _os.utime(lock, (old, old))
+            got = m._excl_lock_try(lock, 900)
+            check(f"過期鎖 S2:{name} PID 的舊鎖保留", got is False and lock.read_text(encoding="utf-8") == value,
+                  f"got={got} content={lock.read_text(encoding='utf-8')!r}")
+        target = root / "target"
+        target.write_text("untouched", encoding="utf-8")
+        link = root / "link.lock"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            if _os.name != "nt":
+                raise
+        else:
+            got = m._excl_lock_try(link, 900)
+            check("過期鎖 S2:符號連結與目標均不動", got is False and link.is_symlink() and target.read_text() == "untouched", str(got))
+        fresh = root / "fresh.lock"
+        first, second = m._excl_lock_try(fresh, 900), m._excl_lock_try(fresh, 900)
+        check("過期鎖 S2:正常獨佔建檔", first is True and second is False, f"{first=} {second=}")
+
+
+def t_excl_lock_creation_failure_cleans_own_file():
+    """S3: 短寫補齊，寫失敗只清自己新建的半成品。"""
+    import os as _os
+
+    m = _load_lumos_module()
+    real_write = _os.write
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        short = root / "short.lock"
+
+        def one_byte(fd, data):
+            return real_write(fd, data[:1])
+
+        m.os.write = one_byte
+        try:
+            got = m._excl_lock_try(short, 900)
+        finally:
+            m.os.write = real_write
+        content = short.read_text(encoding="utf-8") if short.exists() else ""
+        check("過期鎖 S3:短寫不得宣稱已寫完", got is True and content.startswith(str(_os.getpid()) + "\n"),
+              f"got={got} content={content!r}")
+
+        failed = root / "failed.lock"
+
+        def no_space(fd, data):
+            raise OSError(28, "injected full disk")
+
+        m.os.write = no_space
+        raised = False
+        try:
+            m._excl_lock_try(failed, 900)
+        except OSError:
+            raised = True
+        finally:
+            m.os.write = real_write
+        check("過期鎖 S3:寫失敗回真錯誤且不留自己空鎖", raised and not failed.exists(),
+              f"raised={raised} exists={failed.exists()}")
+
+        replaced = root / "replaced.lock"
+
+        def other_owner(fd, data):
+            replaced.unlink()
+            replaced.write_text("OTHER", encoding="utf-8")
+            raise OSError(28, "injected replacement")
+
+        m.os.write = other_owner
+        try:
+            try:
+                m._excl_lock_try(replaced, 900)
+            except OSError:
+                pass
+        finally:
+            m.os.write = real_write
+        check("過期鎖 S3:失敗清理不刪他人換入的鎖", replaced.read_text(encoding="utf-8") == "OTHER",
+              replaced.read_text(encoding="utf-8"))
+
+        partial = root / "partial.lock"
+        calls = {"n": 0}
+
+        def short_then_fail(fd, data):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return real_write(fd, data[:1])
+            raise OSError(28, "injected full disk after short write")
+
+        m.os.write = short_then_fail
+        try:
+            try:
+                m._excl_lock_try(partial, 900)
+            except OSError:
+                pass
+        finally:
+            m.os.write = real_write
+        check("過期鎖 S3:短寫一個位元組後失敗,自己的半成品鎖也清掉(代碼審 code-鎖身份含內容 r1 正確性席)",
+              not partial.exists(), f"exists={partial.exists()}")
+
+        empty_swap = root / "empty-swap.lock"
+        real_close = _os.close
+
+        def fail_write(fd, data):
+            raise OSError(28, "injected full disk")
+
+        def close_then_swap(fd):
+            real_close(fd)
+            if empty_swap.exists():
+                empty_swap.unlink()
+            empty_swap.write_bytes(b"")        # 別人在我關檔後換入、還沒寫的空鎖;Linux 常拿到同一個 inode
+
+        m.os.write, m.os.close = fail_write, close_then_swap
+        try:
+            try:
+                m._excl_lock_try(empty_swap, 900)
+            except OSError:
+                pass
+        finally:
+            m.os.write, m.os.close = real_write, real_close
+        check("過期鎖 S3:關檔後別人換入的空鎖不刪(空內容不能當成自己的前綴;代碼審 code-鎖身份含內容 r1 正確性席)",
+              empty_swap.exists(), f"exists={empty_swap.exists()}")
+
+        denied = root / "denied.lock"
+        real_open = _os.open
+
+        def deny(path, flags, mode=0o777, **kwargs):
+            if str(path) == str(denied):
+                raise PermissionError(13, "injected permission denied")
+            return real_open(path, flags, mode, **kwargs)
+
+        m.os.open = deny
+        raised = False
+        try:
+            m._excl_lock_try(denied, 900)
+        except PermissionError:
+            raised = True
+        finally:
+            m.os.open = real_open
+        check("過期鎖 S3:無權限與鎖已存在分開報", raised and not denied.exists(), str(raised))
+
+
+def t_vault_stale_lock_fails_with_path():
+    """S3: 殘留鎖不能讓筆記庫無限等待，也要說出可查核的位置。"""
+    import os as _os
+    import time as _time
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        home, vault = root / "home", root / "vault"
+        home.mkdir()
+        vault.mkdir()
+        old_home = _os.environ.get("HOME")
+        real_monotonic = _time.monotonic
+        _os.environ["HOME"] = str(home)
+        try:
+            lock, _ = m._vault_lock_where(vault)
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            lock.write_text("99999999\n0", encoding="utf-8")
+            old = _time.time() - 1200
+            _os.utime(lock, (old, old))
+            ticks = iter((0, 61))
+            _time.monotonic = lambda: next(ticks, 61)
+            try:
+                with m._vault_write_lock(vault):
+                    pass
+                message = ""
+            except RuntimeError as exc:
+                message = str(exc)
+            finally:
+                _time.monotonic = real_monotonic
+            check("過期鎖 S3 前置:筆記庫入口真的走到等待上限", "60 秒" in message, message)
+            check("過期鎖 S3:指出鎖位置與人工查核", str(lock) in message and "確認" in message,
+                  message)
+            content = lock.read_text(encoding="utf-8") if lock.exists() else "<鎖已被移除>"
+            check("過期鎖 S3:拒絕寫入且原鎖保留", content == "99999999\n0", content)
+            started = _time.monotonic()
+            with _mock.patch.object(m, "_excl_lock_try", side_effect=PermissionError(13, "injected")):
+                try:
+                    with m._vault_write_lock(vault):
+                        pass
+                    permission_message = ""
+                except RuntimeError as exc:
+                    permission_message = str(exc)
+            check("過期鎖 S4:建鎖失敗立即回真錯誤", "無法建立" in permission_message
+                  and str(lock) in permission_message and _time.monotonic() - started < 2,
+                  permission_message)
+        finally:
+            if old_home is None:
+                _os.environ.pop("HOME", None)
+            else:
+                _os.environ["HOME"] = old_home
+
+
+def t_lens_stale_lock_reports_uncertainty():
+    """S4: 舊派工鎖不能自動偷，也不能假稱背景工作一定仍活著。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    import time as _time
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        cache = root / "cache.json"
+        lock = root / "cache.json.warming"
+        lock.write_text("99999999\n0", encoding="utf-8")
+        old = _time.time() - m._LENS_LOCK_STALE_SEC - 10
+        _os.utime(lock, (old, old))
+        out = _io.StringIO()
+        with _mock.patch("subprocess.Popen") as spawn, _ctx.redirect_stdout(out):
+            rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, 0)
+        result = _json.loads(out.getvalue())
+        check("過期鎖 S4 前置:確實走到派工鏡頭超時", rc == 5 and result.get("timed_out") is True,
+              out.getvalue())
+        check("過期鎖 S4:舊鎖不啟動第二支", spawn.call_count == 0 and lock.read_text() == "99999999\n0",
+              f"spawn={spawn.call_count} lock={lock.read_text() if lock.exists() else 'missing'}")
+        check("過期鎖 S4:超時只報狀態未知", result.get("lock_uncertain") is True and result.get("still_warming") is not True,
+              out.getvalue())
+
+        cached = _io.StringIO()
+        with _mock.patch.object(m, "_lens_cache_read", return_value={"text": "ready"}), \
+                _ctx.redirect_stdout(cached):
+            cached_rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, .2)
+        check("過期鎖 S5:非持有者見快取也不能刪別人的鎖",
+              cached_rc == 0 and lock.exists() and lock.read_text(encoding="utf-8") == "99999999\n0",
+              f"rc={cached_rc} lock={lock.read_text() if lock.exists() else 'missing'}")
+
+        lock.unlink()
+        replacement = {"acquired": False}
+        def cache_after_failed_spawn(_path):
+            replacement["acquired"] = m._excl_lock_try(lock, m._LENS_LOCK_STALE_SEC)
+            return {"text": "ready"}
+        switched = _io.StringIO()
+        with _mock.patch("subprocess.Popen", side_effect=OSError("spawn failed")), \
+                _mock.patch.object(m, "_lens_cache_read", side_effect=cache_after_failed_spawn), \
+                _ctx.redirect_stdout(switched):
+            switched_rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, .2)
+        check("過期鎖 S5:啟動失敗後新持有者的鎖不能被舊等待端刪除",
+              switched_rc == 0 and replacement["acquired"] is True and lock.exists(),
+              f"rc={switched_rc} acquired={replacement['acquired']} lock={lock.exists()}")
+
+        hook = _load_hook_mod("stale_lens_hook", "dispatch-lens-hook.py")
+        response = type("Response", (), {"returncode": 5, "stdout": _json.dumps(result), "stderr": ""})()
+        payload = {"tool_name": "Agent", "tool_input": {"prompt": "請審查\nLUMOS-IMPACT: a..b"}}
+        rendered = _io.StringIO()
+        with _mock.patch.object(hook.subprocess, "run", return_value=response), \
+                _mock.patch.object(hook, "_find_lumos_script", return_value="/trusted/lumos"), \
+                _mock.patch.object(hook.sys, "stdin", _io.StringIO(_json.dumps(payload))), \
+                _mock.patch.dict(_os.environ, {"CLAUDE_PROJECT_DIR": str(root)}), \
+                _ctx.redirect_stdout(rendered):
+            hook_rc = hook.main()
+        check("過期鎖 S4:派工 hook 傳達需查鎖", hook_rc == 0 and "狀態未知" in rendered.getvalue() and "檢查鎖" in rendered.getvalue(),
+              rendered.getvalue())
+
+        error_output = _io.StringIO()
+        with _mock.patch.object(m, "_excl_lock_try", side_effect=PermissionError(13, "injected")), \
+                _ctx.redirect_stdout(error_output):
+            try:
+                error_rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, 0)
+            except PermissionError:
+                error_rc = None
+        try:
+            error_data = _json.loads(error_output.getvalue())
+        except ValueError:
+            error_data = {}
+        check("過期鎖 S5:建鎖錯誤有獨立 rc 與鎖位置", error_rc == 2 and error_data.get("lock_error") is True
+              and error_data.get("lock_path") == str(lock), f"rc={error_rc} data={error_data}")
+
+        error_response = type("Response", (), {"returncode": 2,
+                              "stdout": _json.dumps({"lock_error": True, "lock_path": str(lock), "range": "a..b"}),
+                              "stderr": ""})()
+        rendered = _io.StringIO()
+        mark = _mock.Mock()
+        with _mock.patch.object(hook.subprocess, "run", return_value=error_response), \
+                _mock.patch.object(hook, "_find_lumos_script", return_value="/trusted/lumos"), \
+                _mock.patch.object(hook.sys, "stdin", _io.StringIO(_json.dumps(payload))), \
+                _mock.patch.dict(sys.modules, {"_hookevent": type("Event", (), {"mark": mark})}), \
+                _mock.patch.dict(_os.environ, {"CLAUDE_PROJECT_DIR": str(root)}), \
+                _ctx.redirect_stdout(rendered):
+            hook_rc = hook.main()
+        check("過期鎖 S5:派工 hook 傳達建鎖失敗", hook_rc == 0 and "鎖無法建立" in rendered.getvalue()
+              and str(lock) in rendered.getvalue(), rendered.getvalue())
+        check("過期鎖 S5:吞下建鎖失敗後事件帳不可記成成功",
+              mark.call_count == 1 and mark.call_args.args[0] == "error", str(mark.call_args_list))
+
+
+def t_lens_warmer_cache_hit_releases_owned_lock():
+    """背景程序即使一進場就讀到快取，也要釋放派工端交給它的鎖。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    base, head = "a" * 40, "b" * 40
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        repo = home / "repo"
+        repo.mkdir()
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        with _mock.patch.object(Path, "home", return_value=home):
+            cpath = m._lens_cache_path(repo, base, head)
+        lock = cpath.with_name(cpath.name + ".warming")
+        lock.write_text("123\n0", encoding="utf-8")
+
+        def git(_root, *args, **_kw):
+            if args[:2] == ("rev-parse", "--show-toplevel"):
+                return _sp.CompletedProcess(args, 0, str(repo) + "\n", "")
+            return _sp.CompletedProcess(args, 0, "", "")
+
+        out = _io.StringIO()
+        env = {m._LENS_WARM_ENV: "1", "LUMOS_LENS_LOCK_OWNER": "123",
+               "LUMOS_LENS_LOCK_NAME": lock.name, "LUMOS_LENS_DISP_KEY": ""}
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "_lens_git", side_effect=git), \
+                _mock.patch.object(m, "_git_commit_exists", return_value=True), \
+                _mock.patch.object(m, "_lens_full_sha", side_effect=lambda _r, ref: {"base": base, "head": head}[ref]), \
+                _mock.patch.object(m, "_mainline_ref", return_value=("main", head)), \
+                _mock.patch.object(m, "_codeloop_read_dispositions", return_value=None), \
+                _mock.patch.object(m, "_lens_cache_read", return_value={"text": "cached"}), \
+                _mock.patch.dict(_os.environ, env), _ctx.redirect_stdout(out):
+            rc = m.cmd_dispatch_lens("base..head", repo=str(repo), as_json=True)
+        result = _json.loads(out.getvalue())
+        check("背景快取命中前置:確實走到快取早退", rc == 0 and result.get("cache_hit") is True,
+              out.getvalue())
+        check("背景快取命中:清掉本次受託的鎖", not lock.exists(), str(lock))
+
+
+def t_lens_warmer_ref_move_keeps_lock_identity():
+    """符號 ref 移動後仍傳固定 SHA；同 PID 不同範圍及錯誤身份不得被清。"""
+    import os as _os
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    stable = "a" * 40 + ".." + "b" * 40
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        own = cache_dir / ("a" * 64 + ".json.warming")
+        other = cache_dir / ("b" * 64 + ".json.warming")
+        own.write_text("123\n0", encoding="utf-8")
+        other.write_text("123\n0", encoding="utf-8")
+        env = {"LUMOS_LENS_LOCK_OWNER": "123", "LUMOS_LENS_LOCK_NAME": own.name}
+
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "_cmd_dispatch_lens_impl", return_value=0), \
+                _mock.patch.dict(_os.environ, env):
+            with _mock.patch.dict(_os.environ, {m._LENS_WARM_ENV: ""}):
+                m.cmd_dispatch_lens("a..b")
+            check("鎖身份:一般呼叫不清鎖", own.exists(), str(own))
+            with _mock.patch.dict(_os.environ, {m._LENS_WARM_ENV: "1", "LUMOS_LENS_LOCK_OWNER": "999"}):
+                m.cmd_dispatch_lens("a..b")
+            check("鎖身份:PID 不符不清鎖", own.exists(), str(own))
+            with _mock.patch.dict(_os.environ, {m._LENS_WARM_ENV: "1"}):
+                m.cmd_dispatch_lens("a..b")
+            check("鎖身份:同 PID 另一範圍不被清", not own.exists() and other.exists(),
+                  f"own={own.exists()} other={other.exists()}")
+
+        with _mock.patch("subprocess.Popen") as spawn, \
+                _mock.patch.object(m, "_lens_cache_read", return_value=None), \
+                _mock.patch.object(m, "_lens_report_lock_timeout", return_value=5):
+            rc = m._lens_wait_or_warm(home, own.with_suffix(""), "main~1..moving-ref", home,
+                                      True, 0, warm_range=stable)
+        argv = spawn.call_args.args[0] if spawn.call_args else []
+        child_env = spawn.call_args.kwargs.get("env", {}) if spawn.call_args else {}
+        check("鎖身份:派工後 ref 可移動但子程序使用固定 SHA 與原鎖名稱",
+              rc == 5 and len(argv) > 3 and argv[3] == stable and
+              child_env.get("LUMOS_LENS_LOCK_NAME") == own.with_suffix("").name + ".warming",
+              f"argv={argv} lock={child_env.get('LUMOS_LENS_LOCK_NAME')}")
+
+        import subprocess as _sp
+        base_sha, head_sha = stable.split("..")
+        def git(_root, *args, **_kw):
+            if args[:2] == ("rev-parse", "--show-toplevel"):
+                return _sp.CompletedProcess(args, 0, str(home) + "\n", "")
+            return _sp.CompletedProcess(args, 0, "", "")
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "_lens_git", side_effect=git), \
+                _mock.patch.object(m, "_git_commit_exists", return_value=True), \
+                _mock.patch.object(m, "_lens_full_sha", side_effect=lambda _r, ref: {"main~1": base_sha, "moving-ref": head_sha}[ref]), \
+                _mock.patch.object(m, "_mainline_ref", return_value=("main", head_sha)), \
+                _mock.patch.object(m, "_codeloop_read_dispositions", return_value=None), \
+                _mock.patch.object(m, "_lens_cache_read", return_value=None), \
+                _mock.patch.object(m, "_lens_wait_or_warm", return_value=5) as wait:
+            parent_rc = m.cmd_dispatch_lens("main~1..moving-ref", repo=str(home), deadline=1)
+        check("鎖身份:真正派工入口把已解析 SHA 交給背景等待段",
+              parent_rc == 5 and wait.call_args.kwargs.get("warm_range") == stable,
+              str(wait.call_args))
+
+
+def t_lens_cache_read_without_getuid():
+    """快取讀取沿用私有目錄的平台分支，POSIX 仍檢查擁有者與權限。"""
+    import json as _json
+    import os as _os
+    import types as _types
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        p = cache_dir / "cache.json"
+        p.write_text(_json.dumps({"text": "cached"}), encoding="utf-8")
+        without_uid = _types.SimpleNamespace(**{k: v for k, v in vars(_os).items() if k != "getuid"})
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "os", without_uid):
+            got = m._lens_cache_read(p)
+        check("Windows 分支:沒有 getuid 仍可讀合法快取", got == {"text": "cached"}, str(got))
+        with _mock.patch.object(Path, "home", return_value=home):
+            if hasattr(_os, "getuid"):
+                with _mock.patch.object(m.os, "getuid", return_value=_os.getuid() + 1):
+                    foreign = m._lens_cache_read(p)
+                p.chmod(0o666)
+                writable = m._lens_cache_read(p)
+                check("POSIX 分支:不信非自己擁有或他人可寫的快取",
+                      foreign is None and writable is None, f"foreign={foreign} writable={writable}")
+
+
+
+def t_lens_cache_read_rejects_untrusted_path_without_getuid():
+    """沒有 getuid 時，連結到私有快取外的目錄或檔案也不能進派工詞。"""
+    import json as _json
+    import os as _os
+    import types as _types
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        home, shared = root / "home", root / "shared"
+        home.mkdir()
+        shared.mkdir()
+        parent = home / ".cache" / "lumos"
+        parent.mkdir(parents=True)
+        cache_dir = parent / "dispatch-lens"
+        cache_dir.symlink_to(shared, target_is_directory=True)
+        attack = cache_dir / "attack.json"
+        attack.write_text(_json.dumps({"text": "ATTACKER-CONTROLLED"}), encoding="utf-8")
+        without_uid = _types.SimpleNamespace(**{k: v for k, v in vars(_os).items() if k != "getuid"})
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "os", without_uid):
+            trusted = m._trusted_private_dir(cache_dir, ".cache", "lumos", "dispatch-lens")
+            got = m._lens_cache_read(attack)
+        check("無 getuid 快取前置:外部連結目錄本身不可信", trusted is False,
+              f"trusted={trusted} path={attack}")
+        check("無 getuid 快取:不讀外部連結目錄的任意派工文字", got is None, str(got))
+
+        cache_dir.unlink()
+        cache_dir.mkdir(mode=0o700)
+        linked_file = cache_dir / "linked.json"
+        linked_file.symlink_to(shared / "attack.json")
+        malformed = cache_dir / "malformed.json"
+        malformed.write_text(_json.dumps({"text": 42}), encoding="utf-8")
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "os", without_uid):
+            linked = m._lens_cache_read(linked_file)
+            invalid = m._lens_cache_read(malformed)
+        check("無 getuid 快取:檔案連結也不讀", linked is None, str(linked))
+        check("無 getuid 快取:不把非文字 JSON 當派工內容", invalid is None, str(invalid))
+
+
+
+def t_lens_untrusted_cache_never_creates_external_lock():
+    """讀取端拒絕外部連結時，背景等待端也不能沿該路徑建鎖。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    import types as _types
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        home, shared = root / "home", root / "shared"
+        (home / ".cache" / "lumos").mkdir(parents=True)
+        shared.mkdir()
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.symlink_to(shared, target_is_directory=True)
+        cpath = cache_dir / ("a" * 64 + ".json")
+        outside_lock = shared / (cpath.name + ".warming")
+        without_uid = _types.SimpleNamespace(**{k: v for k, v in vars(_os).items() if k != "getuid"})
+        out = _io.StringIO()
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(m, "os", without_uid), \
+                _mock.patch("subprocess.Popen") as spawn, _ctx.redirect_stdout(out):
+            trusted = m._trusted_private_dir(cache_dir, ".cache", "lumos", "dispatch-lens")
+            rc1 = m._lens_wait_or_warm(root, cpath, "a..b", root, True, 0)
+            rc2 = m._lens_wait_or_warm(root, cpath, "a..b", root, True, 0)
+        lines = [_json.loads(line) for line in out.getvalue().splitlines() if line.strip()]
+        check("外部連結鎖前置:派工快取目錄被信任判準拒絕",
+              trusted is False, f"trusted={trusted}")
+        check("外部連結鎖:不建外部鎖、不啟動無法落快取的暖機",
+              rc1 == rc2 == 2 and spawn.call_count == 0 and not outside_lock.exists()
+              and len(lines) == 2 and all(row.get("lock_error") is True for row in lines),
+              f"rc={rc1},{rc2} spawn={spawn.call_count} lock={outside_lock.exists()} out={lines}")
+
+
+
+def t_lens_trusted_cache_still_spawns_warmer():
+    """合法私有目錄仍能建立暖機鎖，避免安全檢查把正常暖機關掉。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cpath = cache_dir / ("a" * 64 + ".json")
+        lock = cache_dir / (cpath.name + ".warming")
+        out = _io.StringIO()
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch("subprocess.Popen") as spawn, _ctx.redirect_stdout(out):
+            rc = m._lens_wait_or_warm(home, cpath, "a..b", home, True, 0)
+        data = _json.loads(out.getvalue())
+        check("私有目錄正向:仍可建鎖並啟動一次背景工作",
+              rc == 5 and spawn.call_count == 1 and lock.exists()
+              and data.get("timed_out") is True and not data.get("lock_error"),
+              f"rc={rc} spawn={spawn.call_count} lock={lock.exists()} data={data}")
+
+
+def t_lens_deadline_final_cache_read():
+    """最後一次輪詢後、期限前已寫好的快取應優先於逾時分類。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        cache = root / "cache.json"
+        lock = cache.with_name(cache.name + ".warming")
+        lock.write_text("existing", encoding="utf-8")
+        state = {"written": False}
+        def finish_during_sleep(_seconds):
+            state["written"] = True
+            lock.unlink()
+        out = _io.StringIO()
+        with _mock.patch("time.monotonic", side_effect=[0.0, 0.0, 2.0]), \
+                _mock.patch("time.sleep", side_effect=finish_during_sleep), \
+                _mock.patch.object(m, "_lens_cache_read",
+                    side_effect=lambda _path: {"text": "ready"} if state["written"] else None), \
+                _ctx.redirect_stdout(out):
+            rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, 1)
+        data = _json.loads(out.getvalue())
+        check("期限末前置:背景在最後一次睡眠期間完成並清鎖",
+              state["written"] and not lock.exists(), str(data))
+        check("期限末:讀到已完成快取就不誤報鎖狀態未知",
+              rc == 0 and data.get("text") == "ready" and not data.get("timed_out"),
+              f"rc={rc} data={data}")
+
+
+def t_lens_warmer_cache_ttl_retries():
+    """早退清鎖後，過期快取不能阻止下一次暖機取得同名鎖。"""
+    import os as _os
+    import time as _time
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        cpath = cache_dir / ("c" * 64 + ".json")
+        lock = cpath.with_name(cpath.name + ".warming")
+        lock.write_text("123\n0", encoding="utf-8")
+        env = {m._LENS_WARM_ENV: "1", "LUMOS_LENS_LOCK_OWNER": "123",
+               "LUMOS_LENS_LOCK_NAME": lock.name}
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.dict(_os.environ, env), \
+                _mock.patch.object(m, "_cmd_dispatch_lens_impl", return_value=0):
+            m.cmd_dispatch_lens("a..b")
+        cpath.write_text('{"text":"old"}', encoding="utf-8")
+        old = _time.time() - 1300
+        _os.utime(cpath, (old, old))
+        with _mock.patch("subprocess.Popen") as spawn, \
+                _mock.patch.object(m, "_lens_report_lock_timeout", return_value=5):
+            rc = m._lens_wait_or_warm(home, cpath, "a..b", home, True, 0)
+        check("過期快取:舊鎖已清、下一次可取得鎖並派暖機",
+              rc == 5 and lock.exists() and spawn.call_count == 1,
+              f"rc={rc} lock={lock.exists()} spawn={spawn.call_count}")
+
+
+def t_lens_warmer_error_exit_releases_owned_lock():
+    """impact、JSON、base 樹失敗與未預期例外，都保留原錯誤並釋放背景鎖。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    base, head = "a" * 40, "b" * 40
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        repo = home / "repo"
+        repo.mkdir()
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        with _mock.patch.object(Path, "home", return_value=home):
+            cpath = m._lens_cache_path(repo, base, head)
+        lock = cpath.with_name(cpath.name + ".warming")
+        env = {m._LENS_WARM_ENV: "1", "LUMOS_LENS_LOCK_OWNER": "123",
+               "LUMOS_LENS_LOCK_NAME": lock.name, "LUMOS_LENS_DISP_KEY": ""}
+
+        for case, expected in (("impact", 7), ("json", 2), ("base-tree", 2), ("exception", RuntimeError)):
+            lock.write_text("123\n0", encoding="utf-8")
+
+            def git(_root, *args, **_kw):
+                if args[:2] == ("rev-parse", "--show-toplevel"):
+                    return _sp.CompletedProcess(args, 0, str(repo) + "\n", "")
+                if args and args[0] == "ls-tree":
+                    return _sp.CompletedProcess(args, 1, "", "")
+                return _sp.CompletedProcess(args, 0, "", "")
+
+            def impact(*_args, _case=case, **_kw):
+                if _case == "impact":
+                    return 7
+                if _case == "exception":
+                    raise RuntimeError("injected")
+                if _case == "base-tree":
+                    print(_json.dumps({"results": [], "files": []}))
+                return 0
+
+            out = _io.StringIO()
+            with _mock.patch.object(Path, "home", return_value=home), \
+                    _mock.patch.object(m, "_lens_git", side_effect=git), \
+                    _mock.patch.object(m, "_git_commit_exists", return_value=True), \
+                    _mock.patch.object(m, "_lens_full_sha", side_effect=lambda _r, ref: {"base": base, "head": head}[ref]), \
+                    _mock.patch.object(m, "_mainline_ref", return_value=("main", head)), \
+                    _mock.patch.object(m, "_codeloop_read_dispositions", return_value=None), \
+                    _mock.patch.object(m, "_lens_cache_read", return_value=None), \
+                    _mock.patch.object(m, "cmd_impact_diff", side_effect=impact), \
+                    _mock.patch.dict(_os.environ, env), _ctx.redirect_stdout(out):
+                try:
+                    rc = m.cmd_dispatch_lens("base..head", repo=str(repo), as_json=True)
+                except RuntimeError:
+                    rc = RuntimeError
+            check(f"錯誤出口 {case}:原返回或例外保留且受託鎖已清",
+                  rc == expected and not lock.exists(), f"rc={rc} lock={lock.exists()}")
+
+
+def t_lens_warmer_cleanup_runs_once():
+    """清掉舊鎖後若同版新工作立即取得同名鎖，舊背景不可再清第二次。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    base, head = "a" * 40, "b" * 40
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        repo = home / "repo"
+        repo.mkdir()
+        cache_dir = home / ".cache" / "lumos" / "dispatch-lens"
+        cache_dir.mkdir(parents=True, mode=0o700)
+        cache_dir.chmod(0o700)
+        with _mock.patch.object(Path, "home", return_value=home):
+            cpath = m._lens_cache_path(repo, base, head)
+        lock = cpath.with_name(cpath.name + ".warming")
+        lock.write_text("123\n0", encoding="utf-8")
+        env = {m._LENS_WARM_ENV: "1", "LUMOS_LENS_LOCK_OWNER": "123",
+               "LUMOS_LENS_LOCK_NAME": lock.name, "LUMOS_LENS_DISP_KEY": ""}
+
+        def git(_root, *args, **_kw):
+            if args[:2] == ("rev-parse", "--show-toplevel"):
+                return _sp.CompletedProcess(args, 0, str(repo) + "\n", "")
+            if args and args[0] == "ls-tree":
+                return _sp.CompletedProcess(args, 0,
+                    "100644 blob abc\tdocs/lumos-toolchain-knowledge/MOC/index.md\n", "")
+            return _sp.CompletedProcess(args, 0, "", "")
+
+        original_unlink = Path.unlink
+        removed = []
+        def replace_after_first_release(path, *args, **kwargs):
+            result = original_unlink(path, *args, **kwargs)
+            if path == lock:
+                removed.append(1)
+                if len(removed) == 1:
+                    lock.write_text("123\nnew", encoding="utf-8")
+            return result
+
+        out = _io.StringIO()
+        with _mock.patch.object(Path, "home", return_value=home), \
+                _mock.patch.object(Path, "unlink", new=replace_after_first_release), \
+                _mock.patch.object(m, "_lens_git", side_effect=git), \
+                _mock.patch.object(m, "_git_commit_exists", return_value=True), \
+                _mock.patch.object(m, "_lens_full_sha", side_effect=lambda _r, ref: {"base": base, "head": head}[ref]), \
+                _mock.patch.object(m, "_mainline_ref", return_value=("main", head)), \
+                _mock.patch.object(m, "_codeloop_read_dispositions", return_value=None), \
+                _mock.patch.object(m, "_lens_cache_read", return_value=None), \
+                _mock.patch.object(m, "_lens_cache_write"), \
+                _mock.patch.object(m, "_lens_fallback", return_value=([], "none", {})), \
+                _mock.patch.object(m, "_platform_test_index", return_value=None), \
+                _mock.patch.object(m, "cmd_impact_diff", side_effect=lambda *_a, **_kw: (print(_json.dumps({"results": [], "files": []})) or 0)), \
+                _mock.patch.dict(_os.environ, env), _ctx.redirect_stdout(out):
+            rc = m.cmd_dispatch_lens("base..head", repo=str(repo), as_json=True)
+        check("單一清理點:新同名鎖在第一次釋放後換入並存活",
+              rc == 0 and removed == [1] and lock.exists() and lock.read_text(encoding="utf-8") == "123\nnew",
+              f"rc={rc} removed={removed} lock={lock.exists()} output={out.getvalue()[:100]}")
+
+
+
+def t_lens_spawn_failure_reports_error():
+    """建子程序失敗要即時分流；清鎖再失敗不能被可用快取掩蓋。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import time as _time
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    with tempfile.TemporaryDirectory() as d:
+        root, cache = Path(d), Path(d) / "cache.json"
+        lock = Path(str(cache) + ".warming")
+        out = _io.StringIO()
+        started = _time.monotonic()
+        with _mock.patch("subprocess.Popen", side_effect=OSError("SECRET spawn failure")) as spawn, \
+                _ctx.redirect_stdout(out):
+            rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, .4)
+        data = _json.loads(out.getvalue())
+        check("啟動失敗前置:確實取得鎖且呼叫 Popen", spawn.call_count == 1 and not lock.exists() and rc in (2, 5),
+              f"rc={rc} lock={lock.exists()}")
+        check("啟動失敗 S1:立即獨立錯誤而非逾時",
+              rc == 2 and data.get("spawn_error") is True and data.get("lock_path") == str(lock)
+              and data.get("range") == "a..b" and not data.get("timed_out")
+              and _time.monotonic() - started < .35, f"rc={rc} data={data}")
+        manual = _io.StringIO()
+        with _mock.patch("subprocess.Popen", side_effect=OSError("SECRET spawn failure")), \
+                _ctx.redirect_stdout(manual):
+            manual_rc = m._lens_wait_or_warm(root, cache, "a..b", root, False, 0)
+        check("啟動失敗 S1:人工模式有固定診斷且不洩漏例外",
+              manual_rc == 2 and "本次背景未啟動" in manual.getvalue()
+              and str(lock) in manual.getvalue() and "SECRET" not in manual.getvalue(),
+              f"rc={manual_rc} out={manual.getvalue()}")
+        real_unlink = Path.unlink
+        cleanup = {"attempted": False}
+        def deny_own_lock(path, *args, **kwargs):
+            if path == lock:
+                cleanup["attempted"] = True
+                raise PermissionError("injected cleanup failure")
+            return real_unlink(path, *args, **kwargs)
+        blocked = _io.StringIO()
+        with _mock.patch("subprocess.Popen", side_effect=OSError("SECRET spawn failure")) as blocked_spawn, \
+                _mock.patch.object(Path, "unlink", deny_own_lock), \
+                _mock.patch.object(m, "_lens_cache_read", return_value={"text": "ready"}) as ready_cache, \
+                _ctx.redirect_stdout(blocked):
+            blocked_rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, .2)
+        blocked_data = _json.loads(blocked.getvalue())
+        check("啟動失敗 S1 前置:清鎖被拒且可用快取已注入",
+              blocked_spawn.call_count == 1 and cleanup["attempted"] and lock.exists()
+              and ready_cache.return_value == {"text": "ready"},
+              f"rc={blocked_rc} data={blocked_data} lock={lock.exists()}")
+        check("啟動失敗 S1:殘鎖風險優先於快取命中",
+              blocked_rc == 2 and blocked_data.get("spawn_error") is True
+              and blocked_data.get("lock_cleanup_error") is True and lock.exists(),
+              f"rc={blocked_rc} data={blocked_data}")
+
+
+def t_lens_spawn_failure_preserves_replacement_lock():
+    """Popen 尚未拋回前路徑被別人換鎖時，清理不可刪替代持有者。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    # 此單元測試用任意暫存路徑；私有目錄入口另由專門回歸與真背景整合驗。
+    m._lens_warm_dir_ready = lambda _cpath: True
+    with tempfile.TemporaryDirectory() as d:
+        root, cache = Path(d), Path(d) / "cache.json"
+        lock = Path(str(cache) + ".warming")
+        state = {"acquired": False}
+        def replace_then_fail(*args, **kwargs):
+            lock.unlink()
+            state["acquired"] = m._excl_lock_try(lock, m._LENS_LOCK_STALE_SEC)
+            raise OSError("injected spawn failure")
+        out = _io.StringIO()
+        with _mock.patch("subprocess.Popen", side_effect=replace_then_fail), \
+                _ctx.redirect_stdout(out):
+            rc = m._lens_wait_or_warm(root, cache, "a..b", root, True, 0)
+        data = _json.loads(out.getvalue())
+        check("換鎖 S4 前置:確實在 Popen 裡換入新持有者",
+              state["acquired"] is True, str(state))
+        check("換鎖 S4:啟動失敗不刪別人的新鎖",
+              rc == 2 and data.get("spawn_error") is True and lock.exists(),
+              f"rc={rc} data={data} lock={lock.exists()}")
+
+
+def t_lens_spawn_failure_unreadable_lock_reports_cleanup_error():
+    """啟動失敗後讀不到自己的鎖(權限、IO 錯):要回報清鎖失敗,不能當成「已不是我的」靜默留鎖。
+
+    翻紅釘:_excl_lock_is_mine 把讀檔錯誤吞成 False → 清鎖失敗那格紅(代碼審 code-鎖身份含內容 r1 正確性席、架構對齊席)。"""
+    print("t_lens_spawn_failure_unreadable_lock_reports_cleanup_error")
+    from unittest import mock as _mock
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        lock = Path(d) / "cache.json.warming"
+        owned = []
+        check("前置:建得到鎖", m._excl_lock_try(lock, m._LENS_LOCK_STALE_SEC, identity_out=owned) is True, "")
+        with _mock.patch("subprocess.Popen", side_effect=OSError("injected spawn failure")), \
+                _mock.patch.object(type(lock), "read_bytes", side_effect=PermissionError(13, "injected")):
+            spawn_error, cleanup_error = m._lens_spawn_warmer(lock, "a..b", None, owned[0])
+        check("讀不到自己的鎖:回報啟動失敗而且清鎖失敗", spawn_error is True and cleanup_error is True,
+              f"spawn_error={spawn_error} cleanup_error={cleanup_error}")
+
+
+def t_dispatch_lens_hook_spawn_error_notice():
+    """hook 把本次啟動失敗說成錯誤，保留角色卡且不傳原始例外。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    from unittest import mock as _mock
+
+    hook = _load_hook_mod("spawn_error_lens_hook", "dispatch-lens-hook.py")
+    payload = {"tool_name": "Agent", "tool_input": {"prompt": "請審查\nLUMOS-IMPACT: a..b"}}
+    result = {"spawn_error": True, "lock_path": "/tmp/lock\nbad-line", "range": "a..b",
+              "reason": "SECRET raw exception", "role_text": "ROLE-CARD"}
+    response = type("Response", (), {"returncode": 2, "stdout": _json.dumps(result), "stderr": ""})()
+    rendered, mark = _io.StringIO(), _mock.Mock()
+    with tempfile.TemporaryDirectory() as d, \
+            _mock.patch.object(hook.subprocess, "run", return_value=response), \
+            _mock.patch.object(hook, "_find_lumos_script", return_value="/trusted/lumos"), \
+            _mock.patch.object(hook.sys, "stdin", _io.StringIO(_json.dumps(payload))), \
+            _mock.patch.dict(sys.modules, {"_hookevent": type("Event", (), {"mark": mark})}), \
+            _mock.patch.dict(_os.environ, {"CLAUDE_PROJECT_DIR": d}), \
+            _ctx.redirect_stdout(rendered):
+        hook_rc = hook.main()
+    output = rendered.getvalue()
+    check("啟動失敗 S2 前置:hook 真的讀到 rc2 JSON",
+          hook_rc == 0 and response.returncode == 2 and result["spawn_error"] is True,
+          f"rc={hook_rc}")
+    check("啟動失敗 S2/S5:固定提示、角色卡與消毒鎖位置",
+          "本次背景未啟動" in output and "ROLE-CARD" in output
+          and "/tmp/lock bad-line" in output and "SECRET" not in output,
+          output)
+    check("啟動失敗 S2/S5:記事件 error 而非 timeout",
+          mark.call_count == 1 and mark.call_args.args[0] == "error",
+          str(mark.call_args_list))
+
+
+def t_lens_no_cache_bypasses_warmer():
+    """停用開關生效後，即使帶 deadline 也走同步計算。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _json
+    import os as _os
+    from unittest import mock as _mock
+
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        base, head = "a" * 40, "b" * 40
+        def git(_root, *args, **kwargs):
+            stdout = str(root) if args[:2] == ("rev-parse", "--show-toplevel") else (
+                "100644 blob c\tdocs/t-knowledge/MOC/index.md\n" if args[:2] == ("ls-tree", "-r") else "")
+            return type("R", (), {"returncode": 0, "stdout": stdout, "stderr": ""})()
+        def impact(*args, **kwargs):
+            print(_json.dumps({"results": [], "files": []}))
+            return 0
+        out = _io.StringIO()
+        with _mock.patch.object(m, "_lens_git", side_effect=git), \
+                _mock.patch.object(m, "_git_commit_exists", return_value=True), \
+                _mock.patch.object(m, "_lens_full_sha", side_effect=[base, head]), \
+                _mock.patch.object(m, "_mainline_ref", return_value=("main", head)), \
+                _mock.patch.object(m, "_codeloop_read_dispositions", return_value=None), \
+                _mock.patch.object(m, "_codeloop_git_branch", return_value="branch"), \
+                _mock.patch.object(m, "cmd_impact_diff", side_effect=impact) as impact_call, \
+                _mock.patch.object(m, "_lens_fallback", return_value=([], "none", {})), \
+                _mock.patch.object(m, "_platform_test_index", return_value=None), \
+                _mock.patch.object(m, "_lens_wait_or_warm") as warm_call, \
+                _mock.patch("subprocess.Popen") as spawn, \
+                _mock.patch.dict(_os.environ, {"LUMOS_DISPATCH_LENS_NO_CACHE": "1", "HOME": d}), \
+                _ctx.redirect_stdout(out):
+            rc = m.cmd_dispatch_lens("base..head", repo=str(root), as_json=True, deadline=1)
+        check("回退 S6 前置:同步 impact 真有被呼叫", impact_call.call_count == 1,
+              f"rc={rc} impact={impact_call.call_count} out={out.getvalue()[:100]}")
+        check("回退 S6:不啟動暖機或留下新鎖",
+              rc == 0 and warm_call.call_count == 0 and spawn.call_count == 0
+              and not list(root.rglob("*.warming")),
+              f"rc={rc} warm={warm_call.call_count} spawn={spawn.call_count}")
+
+
+
+# ── 審查跑滿回顧(Projects/審查跑滿回顧_計劃)──
+_CR_SPEC_TEXT = "規則甲:回放要決定論,十個字以上。\n"
+_CR_REPORT = "severity: minor\n## f1\nseverity: minor\n引句:「回放要決定論,十個字以上」\n"
+
+
+def _cr_repo():
+    """git repo + docs/kg vault(帳檔落在 docs/,同真實佈局);回 dict。迴圈用 _cr_loop 加。"""
+    import subprocess as _sp, hashlib as _h
+    root = Path(tempfile.mkdtemp(prefix="gctl-capretro-")).resolve()
+    docs = root / "docs"
+    vault = docs / "kg"
+    for sub in ("Systems", "Verification", "Projects", "MOC"):
+        (vault / sub).mkdir(parents=True)
+    (vault / "MOC" / "idx.md").write_text("---\ntype: moc\n---\n# idx\n", encoding="utf-8")
+    (docs / ".governance-log.jsonl").write_text("", encoding="utf-8")
+    (docs / ".canary-log.jsonl").write_text("", encoding="utf-8")
+    spec = root / "cr-spec.md"
+    spec.write_text(_CR_SPEC_TEXT, encoding="utf-8")
+    for _c in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+               ["commit", "-qm", "init", "--allow-empty"]):
+        _sp.run(["git", "-C", str(root), *_c], capture_output=True)
+    return {"root": root, "docs": docs, "vault": vault, "spec": spec,
+            "hsp": _h.sha256(spec.read_bytes()).hexdigest(), "loops": {}}
+
+
+def _cr_loop(c, loop="crx", n_rounds=3, tier="standard", folder=True, ts="2026-09-20T10:00:00+08:00", with_round=True):
+    """加一個迴圈:每輪一席載體(全折),報告與快照放卷證資料夾(folder=False 時放 scratch/)。"""
+    import json as _j, hashlib as _h
+    root = c["root"]
+    rdir = (root / "governance" / "review-reports" / loop) if folder else (root / "scratch" / loop)
+    rdir.mkdir(parents=True, exist_ok=True)
+    snap = rdir / "snapshot.md"
+    snap.write_text(_CR_SPEC_TEXT, encoding="utf-8")
+    rows = []
+    for i in range(1, n_rounds + 1):
+        rpt = rdir / f"r{i}-s1.md"
+        rpt.write_text(_CR_REPORT, encoding="utf-8")
+        row = {"ts": ts, "kind": "none", "loop": loop, "auditor": "s1-sonnet", "token": f"{loop}-T{i}",
+               "severity": "minor", "findings": 1, "tier": tier,
+               "findings_set": [f"r{i}-f1"], "folded_set": [f"r{i}-f1"], "accepted_set": [], "refuted_set": [],
+               "result_sha256": c["hsp"], "reviewed_sha256": c["hsp"],
+               "report_path": str(rpt.relative_to(root)), "report_sha256": _h.sha256(rpt.read_bytes()).hexdigest(),
+               "snapshot_path": str(snap.relative_to(root)), "snapshot_sha256": _h.sha256(snap.read_bytes()).hexdigest()}
+        if with_round:
+            row["round"] = f"r{i}"
+        rows.append(row)
+    with open(c["docs"] / ".canary-log.jsonl", "a", encoding="utf-8") as f:
+        for r in rows:
+            f.write(_j.dumps(r, ensure_ascii=False) + "\n")
+    c["loops"][loop] = {"rdir": rdir, "rows": rows}
+    return rdir
+
+
+def _cr_gov(c, gate=None):
+    import json as _j
+    out = []
+    p = c["docs"] / ".governance-log.jsonl"
+    if not p.is_file():
+        return out
+    for ln in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            d = _j.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and (gate is None or d.get("gate") == gate):
+            out.append(d)
+    return out
+
+
+def _cr_canary_n(c):
+    return (c["docs"] / ".canary-log.jsonl").read_bytes().count(b"\n")
+
+
+def _cr_decide(c, loop="crx", decision="extra-round", note="人裁決定破例再開一輪看最後修正"):
+    return run(c["vault"], "loop", "cap-decision", loop, "--decision", decision, "--note", note, "--repo", str(c["root"]))
+
+
+def _cr_retro_doc(c, loop="crx", rounds=None):
+    return {"version": 1, "loop": loop, "rounds": rounds or ["r1", "r2", "r3"],
+            "drafted_by": "起草-乾淨代理", "completed_by": "編排者-claude",
+            "families": [{"family": "same-family-unswept", "rounds": ["r2", "r3"],
+                          "evidence": [f"governance/review-reports/{loop}/r2-s1.md"], "note": ""}],
+            "why_cap": "同一族的出口沒有一次掃完,每輪都從另一個出口冒出來",
+            "avoid": "第一輪折入時就該把同族的所有出口一次列出來掃完",
+            "changes": [{"target": "dispatch", "ref": "skills/lumos-design-loop/templates.md",
+                         "change": "派工詞要求列出同族所有出口"}]}
+
+
+def _cr_write_retro(c, doc=None, loop="crx", raw=None):
+    import json as _j
+    p = c["loops"][loop]["rdir"] / "cap-retro.json"
+    if raw is not None:
+        p.write_bytes(raw)
+    else:
+        p.write_text(_j.dumps(doc if doc is not None else _cr_retro_doc(c, loop), ensure_ascii=False, indent=1), encoding="utf-8")
+    return p
+
+
+def _cr_retro(c, *args, loop="crx"):
+    return run(c["vault"], "loop", "retro", loop, *args, "--repo", str(c["root"]))
+
+
+def _cr_record(c, round_id, loop="crx", auditor="s9-sonnet"):
+    rdir = c["loops"][loop]["rdir"]
+    rep = _sevrep(rdir)
+    return run(c["vault"], "canary", "record", "none", "--loop", loop, "--round", round_id, "--auditor", auditor,
+               "--severity", "clean", "--findings", "0", "--report", rep, "--snapshot", str(rdir / "snapshot.md"))
+
+
+def _cr_gate(c, loop="crx"):
+    return run(c["vault"], "loop", "status", loop, "--disposal", "--spec", str(c["spec"]), "--repo", str(c["root"]))
+
+
+def _cr_step8(out):
+    return next((ln for ln in out.splitlines() if ln.startswith("[disposal] 跑滿回顧")), "")
+
+
+def _cr_blocked(c, code):
+    return [e for e in _cr_gov(c, "canary") if e.get("kind") == "blocked" and str(e.get("note", "")).startswith(code)]
+
+
+@_cap_real_cutoff
+def t_cap_retro_record_blocks_new_round():
+    """[S1] extra-round 而回顧不合格 → 新一輪第一席回 2、不寫帳、落 cap-retro-missing;合格或跳過照常;同輪後續席與沒人裁的迴圈不擋。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry")
+    r = _cr_decide(c)
+    check("S1 前置:人裁記得進去", r.returncode == 0, r.stdout + r.stderr)
+    n0 = _cr_canary_n(c)
+    r = _cr_record(c, "r4")
+    check("S1 新一輪第一席回 2", r.returncode == 2, f"rc={r.returncode} {r.stdout} {r.stderr}")
+    check("S1 不寫帳", _cr_canary_n(c) == n0, "")
+    check("S1 落一筆 cap-retro-missing 的 canary blocked", len(_cr_blocked(c, "cap-retro-missing")) == 1, str(_cr_gov(c, "canary")))
+    check("S1 印 --template 指令", "--template" in r.stderr, r.stderr)
+    check("S1 不丟堆疊", "Traceback" not in r.stderr, r.stderr[-300:])
+    r = _cr_record(c, "r3")
+    check("S1 同一輪(已在帳上)的後續席不擋", r.returncode == 0, r.stderr[-400:])
+    r = _cr_record(c, "r4", loop="cry")
+    check("S1 沒有人裁紀錄的迴圈不擋", r.returncode == 0, r.stderr[-400:])
+    _cr_write_retro(c)
+    r = _cr_retro(c, "--record")
+    check("S1 前置:回顧記得進去", r.returncode == 0, r.stdout + r.stderr)
+    r = _cr_record(c, "r4")
+    check("S1 回顧合格 → 照常寫帳", r.returncode == 0, r.stderr[-400:])
+    r = _cr_record(c, "r4", auditor="s8-sonnet")
+    check("S1 同一輪第二席不擋", r.returncode == 0, r.stderr[-400:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    _cr_decide(c2)
+    r = _cr_retro(c2, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    check("S1 前置:跳過記得進去", r.returncode == 0, r.stdout + r.stderr)
+    r = _cr_record(c2, "r4")
+    check("S1 已跳過 → 照常寫帳", r.returncode == 0, r.stderr[-400:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_accept_risk_blocks_new_round():
+    """[S2] 最新人裁是 accept-risk → 新一輪回 2、落 cap-accept-risk、叫人先記 extra-round;--skip 解不了。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c, decision="accept-risk", note="人裁接受剩下的風險不再開一輪")
+    n0 = _cr_canary_n(c)
+    r = _cr_record(c, "r4")
+    check("S2 接受風險後再開一輪回 2", r.returncode == 2, f"rc={r.returncode} {r.stderr}")
+    check("S2 不寫帳", _cr_canary_n(c) == n0, "")
+    check("S2 落 cap-accept-risk", len(_cr_blocked(c, "cap-accept-risk")) == 1, str(_cr_gov(c, "canary")))
+    check("S2 叫人先記 extra-round", "extra-round" in r.stderr, r.stderr)
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接結束")
+    r = _cr_record(c, "r4")
+    check("S2 --skip 解不了接受風險的擋下", r.returncode == 2 and len(_cr_blocked(c, "cap-accept-risk")) == 2, r.stderr)
+    _cr_decide(c, decision="extra-round", note="人裁改成破例再開一輪看最後修正")
+    r = _cr_record(c, "r4")
+    check("S2 改記 extra-round 後,舊的跳過不算 → 回顧不合格擋", r.returncode == 2 and len(_cr_blocked(c, "cap-retro-missing")) == 1, r.stderr)
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    r = _cr_record(c, "r4")
+    check("S2 對最新人裁跳過後照常寫帳", r.returncode == 0, r.stderr[-400:])
+
+
+def _cr_disposal_lines(out):
+    return [ln for ln in out.splitlines() if ln.startswith("[disposal] ") and "跑滿回顧" not in ln]
+
+
+@_cap_real_cutoff
+def t_cap_retro_gate_fails_without_retro():
+    """[S3] 要回顧的迴圈回顧不合格 → 第八步 ✗(分沒有與過期)、整體 FAIL、印 --template;其餘七步判定不變。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    base = _cr_gate(c)
+    check("S3 前置:沒人裁時處置閘過", base.returncode == 0 and "DISPOSAL GATE PASS" in base.stdout, base.stdout[-600:] + base.stderr[-300:])
+    _cr_decide(c)
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S3 第八步 ✗ 並說沒有", "✗" in s8 and "沒有" in s8, s8 or r.stdout[-600:])
+    check("S3 整體 FAIL、退出碼 1、原因列出跑滿回顧", r.returncode == 1 and "DISPOSAL GATE FAIL" in r.stdout and "跑滿回顧" in r.stdout.split("DISPOSAL GATE FAIL")[-1], r.stdout[-400:])
+    check("S3 印 --template 指令", "--template" in r.stdout, r.stdout[-400:])
+    check("S3 其餘七步的判定行不變", _cr_disposal_lines(r.stdout) == _cr_disposal_lines(base.stdout),
+          "\n".join(_cr_disposal_lines(r.stdout)) + "\n---\n" + "\n".join(_cr_disposal_lines(base.stdout)))
+    p = _cr_write_retro(c)
+    _cr_retro(c, "--record")
+    p.write_text(p.read_text(encoding="utf-8").replace("同一族的出口", "同一族出口"), encoding="utf-8")
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S3 記了之後回顧檔被改 → 第八步 ✗ 並說過期", "✗" in s8 and "過期" in s8 and r.returncode == 1, s8 or r.stdout[-400:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_gate_binds_latest_decision():
+    """[S4] 最新人裁之後最新一筆是指紋相符的 recorded 或 skipped → ✓;recorded 後檔被改 → ✗ 叫重新 --record;早於最新人裁的不算。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    p = _cr_write_retro(c)
+    r = _cr_retro(c, "--record")
+    check("S4 前置:回顧記得進去", r.returncode == 0, r.stdout + r.stderr)
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S4 recorded 指紋相符 → ✓ 已記回顧,整體過", "✓" in s8 and "已記回顧" in s8 and r.returncode == 0, s8 or r.stdout[-500:])
+    p.write_text(p.read_text(encoding="utf-8").replace("同一族的出口", "同一族出口"), encoding="utf-8")
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S4 recorded 之後檔被改 → ✗ 並叫人重新 --record", "✗" in s8 and "--record" in r.stdout and r.returncode == 1, s8 + r.stdout[-300:])
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S4 最新一筆是 skipped → ✓ 已跳過", "✓" in s8 and "已跳過" in s8 and r.returncode == 0, s8)
+    _cr_decide(c, note="人裁第二次決定再破例開一輪")
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S4 早於最新人裁的跳過與回顧不算 → ✗", "✗" in s8 and r.returncode == 1, s8)
+    p.write_text(__import__("json").dumps(_cr_retro_doc(c), ensure_ascii=False), encoding="utf-8")
+    _cr_retro(c, "--record")
+    r = _cr_gate(c)
+    check("S4 對最新人裁重新 --record → ✓", "✓" in _cr_step8(r.stdout) and r.returncode == 0, _cr_step8(r.stdout))
+
+
+@_cap_real_cutoff
+def t_cap_retro_out_of_scope_not_checked():
+    """[S5] 沒人裁、沒卷證資料夾、回放或凍結任一趟 → 第八步印 — 附原因,不讀回顧檔。"""
+    import json as _j, subprocess as _sp, io, contextlib
+    c = _cr_repo()
+    _cr_loop(c)
+    r = _cr_gate(c)
+    s8 = _cr_step8(r.stdout)
+    check("S5 沒有人裁紀錄 → — 附原因", "—" in s8 and "沒有人裁紀錄" in s8, s8 or r.stdout[-400:])
+    c2 = _cr_repo()
+    _cr_loop(c2, folder=False)
+    r = _cr_decide(c2)
+    check("S5 沒卷證資料夾照記人裁、印不需要回顧", r.returncode == 0 and "不需要回顧" in r.stdout, r.stdout + r.stderr)
+    check("S5 不代建卷證資料夾(記人裁後)", not (c2["root"] / "governance" / "review-reports" / "crx").exists(), "")
+    r = _cr_gate(c2)
+    s8 = _cr_step8(r.stdout)
+    check("S5 沒有卷證資料夾 → — 附原因", "—" in s8 and "卷證資料夾" in s8, s8 or r.stdout[-400:])
+    # 實作期發現:處置閘 roster 尾端會自己 mkdir 卷證資料夾;空資料夾(沒有帳上的席報告)仍算沒有卷證資料夾
+    (c2["root"] / "governance" / "review-reports" / "crx").mkdir(parents=True, exist_ok=True)
+    r = _cr_gate(c2)
+    s8 = _cr_step8(r.stdout)
+    check("S5 只有空資料夾(被代建)→ 仍是 — 附原因", "—" in s8 and "卷證資料夾" in s8, s8 or r.stdout[-400:])
+    # 回放/凍結:不讀回顧檔(判定函式被換成會炸的,仍印 —)
+    _cr_decide(c)
+    m = _load_lumos()
+    m._cap_retro_status = lambda *a, **k: (_ for _ in ()).throw(AssertionError("不該讀"))
+    rows = c["loops"]["crx"]["rows"]
+    for label, kw in (("回放/凍結第二趟(spec_sha_override)", {"spec_sha_override": c["hsp"]}),
+                      ("凍結第一趟(多帶的參數)", {"retro_skip": True})):
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                rc = m._loop_status_disposal(rows, "crx", str(c["spec"]), 0, c["root"], readonly=True, **kw)
+        except Exception as e:
+            rc = f"例外 {e!r}"
+        s8 = _cr_step8(buf.getvalue())
+        check(f"S5 {label} → — 不讀回顧檔", "—" in s8 and rc in (0, 1), f"rc={rc} {s8 or buf.getvalue()[-300:]}")
+    # 真跑一次凍結 + 回放:沒回顧也不讓凍結判定帶第八步
+    for _c in (["add", "-A"], ["commit", "-qm", "evidence"]):
+        _sp.run(["git", "-C", str(c["root"]), *_c], capture_output=True)
+    r = run(c["vault"], "loop", "replay", "crx", "--freeze", "--spec", str(c["spec"]), "--repo", str(c["root"]))
+    vf = c["root"] / "governance" / "replay" / "crx" / "verdict.json"
+    v = _j.loads(vf.read_text(encoding="utf-8")) if vf.exists() else {}
+    check("S5 凍結判定不涵蓋第八步(沒回顧仍凍成 rc0、fails 不含跑滿回顧)",
+          r.returncode == 0 and v.get("verdict", {}).get("rc") == 0 and "跑滿回顧" not in str(v.get("verdict")), r.stdout[-400:] + r.stderr[-300:])
+    r = run(c["vault"], "loop", "replay", "crx", "--golden", str(vf), "--repo", str(c["root"]))
+    check("S5 回放一致(第八步不重判)", r.returncode == 0, r.stdout[-400:] + r.stderr[-300:])
+    # 帳上沒有 result_sha256 時凍結第二趟的 spec_sha_override 是空的,只靠它擋不住第八步(代碼審 r1 合約席)
+    c3 = _cr_repo()
+    _cr_loop(c3)
+    _lg = c3["docs"] / ".canary-log.jsonl"
+    _rows3 = [_j.loads(x) for x in _lg.read_text(encoding="utf-8").splitlines() if x.strip()]
+    for _r3 in _rows3:
+        _r3.pop("result_sha256", None)
+        _r3.pop("reviewed_sha256", None)
+    _lg.write_text("".join(_j.dumps(x, ensure_ascii=False) + "\n" for x in _rows3), encoding="utf-8")
+    _cr_decide(c3)
+    for _c in (["add", "-A"], ["commit", "-qm", "evidence"]):
+        _sp.run(["git", "-C", str(c3["root"])] + _c, capture_output=True)
+    r = run(c3["vault"], "loop", "replay", "crx", "--freeze", "--spec", str(c3["spec"]), "--repo", str(c3["root"]))
+    vf3 = c3["root"] / "governance" / "replay" / "crx" / "verdict.json"
+    v3 = _j.loads(vf3.read_text(encoding="utf-8")) if vf3.exists() else {}
+    check("S5 帳上沒有 result_sha256 時凍結判定也不帶第八步",
+          r.returncode == 0 and v3.get("verdict") is not None and "跑滿回顧" not in str(v3.get("verdict")), r.stdout[-400:] + r.stderr[-300:] + str(v3.get("verdict")))
+
+
+@_cap_real_cutoff
+def t_cap_retro_loop_next_hint():
+    """[S6] loop next 判到 cap-reached → 多印記人裁指令;已有人裁而回顧不合格印 --template;合格印已記;階段與退出碼不變。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    c["spec"].write_text(_CR_SPEC_TEXT + "審後又改了一行。\n", encoding="utf-8")   # G3 不過 → 處置閘沒過 → cap-reached
+
+    def nxt(*extra):
+        return run(c["vault"], "loop", "next", "crx", "--spec", str(c["spec"]), "--repo", str(c["root"]), *extra)
+    r = nxt()
+    check("S6 前置:階段 cap-reached、退出碼 1", "現在狀態 cap-reached" in r.stdout and r.returncode == 1, r.stdout[-500:] + r.stderr[-300:])
+    check("S6 多印記人裁的指令", "cap-decision" in r.stdout and "extra-round" in r.stdout and "accept-risk" in r.stdout, r.stdout[-600:])
+    _cr_decide(c)
+    r = nxt()
+    check("S6 已有人裁、回顧不合格 → 印 --template", "--template" in r.stdout and "現在狀態 cap-reached" in r.stdout and r.returncode == 1, r.stdout[-600:])
+    rj = nxt("--json")
+    d = _j.loads(rj.stdout) if rj.stdout.strip().startswith("{") else {}
+    check("S6 --json 階段不變且帶 cap_retro", d.get("phase") == "cap-reached" and d.get("cap_retro"), rj.stdout[-400:])
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    r = nxt()
+    check("S6 回顧合格 → 印回顧已記", "回顧已記" in r.stdout and r.returncode == 1, r.stdout[-600:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_decision_preconditions():
+    """[S7] cap-decision 的前提:範圍、到上限、編號、理由;合格寫帶 loop/decision/rounds 的人裁紀錄;寫不進去回 1。"""
+    import os as _o, stat as _st
+    c = _cr_repo()
+    _cr_loop(c, loop="lite", tier="light")
+    _cr_loop(c, loop="seq", with_round=False)
+    _cr_loop(c, loop="old", ts="2026-08-20T10:00:00+08:00")
+    _cr_loop(c, loop="short", n_rounds=2)
+    _cr_loop(c)
+    for lp, why in (("lite", "light"), ("seq", "循序"), ("old", "2026-08-26 前開"), ("short", "還沒到上限")):
+        r = _cr_decide(c, loop=lp)
+        check(f"S7 {why} → 回 2 不寫帳", r.returncode == 2 and not _cr_gov(c, "loop-retro"), f"rc={r.returncode} {r.stderr[-200:]}")
+    for bad in ("", "   ", ".", "a/b", "x..y", "a\\b"):
+        r = run(c["vault"], "loop", "cap-decision", bad, "--decision", "extra-round", "--note", "人裁決定破例再開一輪看最後修正",
+                "--repo", str(c["root"]))
+        check(f"S7 編號 {bad!r} 不合格 → 回 2", r.returncode == 2 and "Traceback" not in r.stderr, f"rc={r.returncode} {r.stderr[-200:]}")
+    r = _cr_decide(c, note="太短了")
+    check("S7 理由不足 10 字 → 回 2", r.returncode == 2 and not _cr_gov(c, "loop-retro"), r.stderr[-200:])
+    r = _cr_decide(c)
+    ev = _cr_gov(c, "loop-retro")
+    check("S7 合格 → 回 0 並寫一筆人裁紀錄", r.returncode == 0 and len(ev) == 1 and ev[0].get("kind") == "cap-decision", r.stdout + r.stderr)
+    check("S7 人裁紀錄帶 loop/decision/rounds 結構化欄位",
+          ev and ev[0].get("loop") == "crx" and ev[0].get("decision") == "extra-round" and ev[0].get("rounds") == ["r1", "r2", "r3"], str(ev))
+    c2 = _cr_repo()
+    _cr_loop(c2, folder=False)
+    r = _cr_decide(c2)
+    check("S7 卷證資料夾不存在 → 照記並印不需要回顧", r.returncode == 0 and "不需要回顧" in r.stdout and len(_cr_gov(c2, "loop-retro")) == 1, r.stdout)
+    gl = c["docs"] / ".governance-log.jsonl"
+    _o.chmod(gl, _st.S_IRUSR)
+    try:
+        if _o.access(gl, _o.W_OK):
+            check("S7 寫不進去(環境是 root,唯讀模擬不了,略過)", True)
+        else:
+            r = _cr_decide(c)
+            check("S7 寫不進去 → 回 1 並說沒記到", r.returncode == 1 and "沒記到" in r.stderr, f"rc={r.returncode} {r.stderr}")
+    finally:
+        _o.chmod(gl, _st.S_IRUSR | _st.S_IWUSR)
+
+
+@_cap_real_cutoff
+def t_cap_retro_check_rejects_each_defect():
+    """[S8] --check 逐項擋:族別、輪次、族輪次、證據、起草者、other 說明、none 理由、型別;逐條列出。"""
+    import copy as _cp, os as _o
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    _cr_write_retro(c)
+    r = _cr_retro(c, "--check")
+    check("S8 前置:合格的回顧 --check 回 0", r.returncode == 0, r.stdout + r.stderr)
+    rdir = c["loops"]["crx"]["rdir"]
+    (rdir / "not-a-report.md").write_text("x", encoding="utf-8")
+    base = _cr_retro_doc(c)
+
+    def mut(fn):
+        d = _cp.deepcopy(base)
+        fn(d)
+        return d
+    cases = [
+        ("family 不在固定清單", lambda d: d["families"][0].__setitem__("family", "bogus"), "family"),
+        ("rounds 不等於最新人裁", lambda d: d.__setitem__("rounds", ["r1", "r2"]), "rounds"),
+        ("rounds 順序不同也不行", lambda d: d.__setitem__("rounds", ["r3", "r2", "r1"]), "rounds"),
+        ("families[].rounds 不在回顧輪次內", lambda d: d["families"][0].__setitem__("rounds", ["r9"]), "r9"),
+        ("evidence 不是這個編號帳上的報告", lambda d: d["families"][0].__setitem__("evidence", ["governance/review-reports/crx/not-a-report.md"]), "evidence"),
+        ("drafted_by 等於 completed_by", lambda d: d.__setitem__("completed_by", d["drafted_by"]), "drafted_by"),
+        ("drafted_by 是這個編號的審查席", lambda d: d.__setitem__("drafted_by", "s1-sonnet"), "審查席"),
+        ("other 沒附說明", lambda d: d["families"][0].update({"family": "other", "note": "短"}), "other"),
+        ("changes 的 none 沒附理由", lambda d: d.__setitem__("changes", [{"target": "none"}]), "reason"),
+        ("欄位型別不對(why_cap 是數字)", lambda d: d.__setitem__("why_cap", 123), "why_cap"),
+        ("欄位型別不對(families 不是清單)", lambda d: d.__setitem__("families", "x"), "families"),
+        ("why_cap 不足 20 字", lambda d: d.__setitem__("why_cap", "太短"), "why_cap"),
+        ("changes 的 change 不足 10 字", lambda d: d["changes"][0].__setitem__("change", "短"), "change"),
+        ("loop 不等於指令給的編號", lambda d: d.__setitem__("loop", "CRX"), "loop"),
+    ]
+    for label, fn, kw in cases:
+        _cr_write_retro(c, mut(fn))
+        r = _cr_retro(c, "--check")
+        check(f"S8 {label} → 回 1 並點名 {kw}", r.returncode == 1 and kw in r.stdout and "Traceback" not in r.stderr,
+              f"rc={r.returncode} {r.stdout[-300:]} {r.stderr[-200:]}")
+    _o.remove(rdir / "r1-s1.md")
+    _cr_write_retro(c, mut(lambda d: d["families"][0].update({"rounds": ["r1"], "evidence": ["governance/review-reports/crx/r1-s1.md"]})))
+    r = _cr_retro(c, "--check")
+    check("S8 evidence 是帳上報告但檔已不存在 → 回 1", r.returncode == 1 and "evidence" in r.stdout, r.stdout[-300:])
+    _cr_write_retro(c, mut(lambda d: (d["families"][0].__setitem__("family", "bogus"), d.__setitem__("completed_by", d["drafted_by"]))))
+    r = _cr_retro(c, "--check")
+    _bad = [ln for ln in r.stdout.splitlines() if ln.strip().startswith("✗")]
+    check("S8 多個缺陷逐條列出", r.returncode == 1 and len(_bad) >= 2, r.stdout[-400:])
+    _cr_write_retro(c, mut(lambda d: d["families"][0].__setitem__("evidence", [
+        "./governance/review-reports/crx//r2-s1.md", str(c["root"] / "governance" / "review-reports" / "crx" / "r3-s1.md")])))
+    r = _cr_retro(c, "--check")
+    check("S8 證據路徑正規化(./、重複斜線、repo 內絕對路徑)後收", r.returncode == 0, r.stdout[-400:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_bad_file_no_traceback():
+    """[S9] 回顧檔讀不到、不是 UTF-8、不是 JSON、根不是物件、超過 256KB → --check 回 1 印原因不丟堆疊;retro-stats 與 doctor 只標那一個。"""
+    import json as _j, hashlib as _h
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry")
+    _cr_decide(c)
+    _cr_decide(c, loop="cry")
+    r = _cr_retro(c, "--check")
+    check("S9 讀不到 → 回 1 印原因", r.returncode == 1 and "讀不到" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr[-200:])
+    for label, raw, kw in (("不是 UTF-8", b"\xff\xfe\x00bad", "UTF-8"), ("不是合法 JSON", b"{bad json", "JSON"),
+                           ("根不是物件", b"[1, 2]", "物件"),
+                           ("超過 256KB", _j.dumps({"x": "a" * 300000}).encode("utf-8"), "256KB")):
+        _cr_write_retro(c, raw=raw)
+        r = _cr_retro(c, "--check")
+        check(f"S9 {label} → 回 1 印原因、不丟堆疊", r.returncode == 1 and kw in r.stdout and "Traceback" not in r.stderr,
+              f"rc={r.returncode} {r.stdout[-200:]} {r.stderr[-200:]}")
+    # crx 放一份壞檔、手造一筆指紋相符的 recorded(模擬記了之後才壞):統計與 doctor 只標它
+    p = _cr_write_retro(c, raw=b"\xff\xfe\x00bad")
+    with open(c["docs"] / ".governance-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-10-05T10:00:00+08:00", "commit": "x", "gate": "loop-retro", "kind": "recorded", "hard": False,
+                          "nodes": [], "loop": "crx", "path": str(p.relative_to(c["root"])),
+                          "retro_sha256": _h.sha256(p.read_bytes()).hexdigest(), "rounds": ["r1", "r2", "r3"]}) + "\n")
+    _cr_write_retro(c, loop="cry", doc=_cr_retro_doc(c, loop="cry"))
+    _cr_retro(c, "--record", loop="cry")
+    r = run(c["vault"], "loop", "retro-stats", "--json", "--repo", str(c["root"]))
+    d = _j.loads(r.stdout) if r.stdout.strip().startswith("{") else {}
+    st = {x.get("loop"): x.get("state") for x in d.get("loops", [])}
+    check("S9 retro-stats 不中斷:壞檔那個標過期、另一個照算", r.returncode == 0 and st.get("crx") == "stale" and st.get("cry") == "recorded"
+          and "Traceback" not in r.stderr, r.stdout[-400:] + r.stderr[-300:])
+    r = run(c["vault"], "doctor")
+    check("S9 doctor 不中斷、列出壞檔那個迴圈", "Traceback" not in r.stderr and "crx" in r.stdout, r.stdout[-600:] + r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_record_and_skip_write_gov_log():
+    """[S10] --record 合格寫帶 loop/path/retro_sha256/rounds 的 recorded,不合格回 1 不寫;--skip 理由與人裁前提;寫不進去回 1。"""
+    import hashlib as _h, os as _o, stat as _st
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry")
+    r = _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    check("S10 沒有人裁紀錄 → --skip 回 2", r.returncode == 2, r.stderr[-200:])
+    _cr_decide(c)
+    r = _cr_retro(c, "--record")
+    check("S10 沒回顧檔 → --record 回 1 不寫帳", r.returncode == 1 and not [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "recorded"], r.stdout[-300:])
+    _cr_write_retro(c, dict(_cr_retro_doc(c), why_cap="太短"))
+    r = _cr_retro(c, "--record")
+    check("S10 不合格 → --record 回 1 不寫帳", r.returncode == 1 and not [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "recorded"], r.stdout[-300:])
+    p = _cr_write_retro(c)
+    r = _cr_retro(c, "--record")
+    ev = [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "recorded"]
+    check("S10 合格 → 回 0 寫一筆 recorded", r.returncode == 0 and len(ev) == 1, r.stdout + r.stderr)
+    check("S10 recorded 帶 loop/path/retro_sha256/rounds",
+          ev and ev[0].get("loop") == "crx" and ev[0].get("path") == "governance/review-reports/crx/cap-retro.json"
+          and ev[0].get("retro_sha256") == _h.sha256(p.read_bytes()).hexdigest() and ev[0].get("rounds") == ["r1", "r2", "r3"], str(ev))
+    r = _cr_retro(c, "--skip", "--note", "太短")
+    check("S10 --skip 理由不足 10 字 → 回 2", r.returncode == 2 and not [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "skipped"], r.stderr[-200:])
+    r = _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    ev = [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "skipped"]
+    check("S10 --skip 合格 → 寫一筆帶 loop/rounds/note 的 skipped",
+          r.returncode == 0 and len(ev) == 1 and ev[0].get("loop") == "crx" and ev[0].get("rounds") == ["r1", "r2", "r3"]
+          and "不寫回顧" in str(ev[0].get("note")), str(ev))
+    gl = c["docs"] / ".governance-log.jsonl"
+    _o.chmod(gl, _st.S_IRUSR)
+    try:
+        if _o.access(gl, _o.W_OK):
+            check("S10 寫不進去(環境是 root,唯讀模擬不了,略過)", True)
+        else:
+            r = _cr_retro(c, "--record")
+            check("S10 --record 寫不進去 → 回 1 並說沒記到", r.returncode == 1 and "沒記到" in r.stderr, f"rc={r.returncode} {r.stderr}")
+            r = _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+            check("S10 --skip 寫不進去 → 回 1 並說沒記到", r.returncode == 1 and "沒記到" in r.stderr, f"rc={r.returncode} {r.stderr}")
+    finally:
+        _o.chmod(gl, _st.S_IRUSR | _st.S_IWUSR)
+
+
+@_cap_real_cutoff
+def t_cap_retro_template_prefills_rounds():
+    """[S11] --template 骨架到標準輸出、路徑與下一步到標準錯誤、rounds 依最新人裁;context 帳壞印 null;沒人裁回 2。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    r = _cr_retro(c, "--template")
+    check("S11 沒有人裁紀錄 → 回 2", r.returncode == 2 and "cap-decision" in r.stderr, r.stderr[-300:])
+    _cr_decide(c)
+    r = _cr_retro(c, "--template")
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        d = None
+    check("S11 標準輸出只有骨架 JSON", r.returncode == 0 and isinstance(d, dict), r.stdout[-300:] + r.stderr[-200:])
+    d = d or {}
+    check("S11 version/loop/rounds 已填好", d.get("version") == 1 and d.get("loop") == "crx" and d.get("rounds") == ["r1", "r2", "r3"], str(d)[:300])
+    ctx = d.get("context") or {}
+    check("S11 context 帶每輪折入與帳上報告", isinstance(ctx, dict) and len(ctx.get("rounds") or []) == 3
+          and any("r2-s1.md" in str(x.get("report_path")) for x in ctx.get("reports") or []), str(ctx)[:300])
+    check("S11 路徑與下一步印到標準錯誤", "cap-retro.json" in r.stderr and "--check" in r.stderr and "cap-retro.json" not in r.stdout, r.stderr)
+    with open(c["docs"] / ".canary-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-09-20T11:00:00+08:00", "kind": "none", "loop": "crx", "round": 7, "auditor": "x", "token": "BAD"}) + "\n")
+    r = _cr_retro(c, "--template")
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        d = {}
+    check("S11 帳上欄位壞 → context 印 null、不丟堆疊", r.returncode == 0 and "context" in d and d["context"] is None
+          and "Traceback" not in r.stderr, r.stdout[-300:] + r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_stats_aggregates_families():
+    """[S12] retro-stats 以迴圈為單位:人裁數(分種類、分級)、四種狀態與不適用、族別、行動項;狀態跟處置閘第八步一致。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c, loop="la")
+    _cr_loop(c, loop="lb", tier="high")
+    _cr_loop(c, loop="lc")
+    _cr_loop(c, loop="ld")
+    _cr_loop(c, loop="le", folder=False)
+    for lp in ("la", "lb", "lc", "le"):
+        _cr_decide(c, loop=lp)
+    _cr_decide(c, loop="ld", decision="accept-risk", note="人裁接受剩下的風險不再開一輪")
+    doc = _cr_retro_doc(c, loop="la")
+    doc["families"].append({"family": "fix-induced", "rounds": ["r3"], "evidence": ["governance/review-reports/la/r3-s1.md"], "note": ""})
+    _cr_write_retro(c, doc, loop="la")
+    _cr_retro(c, "--record", loop="la")
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪", loop="lb")
+    p = _cr_write_retro(c, _cr_retro_doc(c, loop="ld"), loop="ld")
+    _cr_retro(c, "--record", loop="ld")
+    p.write_text(p.read_text(encoding="utf-8").replace("同一族的出口", "同一族出口"), encoding="utf-8")
+    r = run(c["vault"], "loop", "retro-stats", "--json", "--repo", str(c["root"]))
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        d = {}
+    t = d.get("totals") or {}
+    check("S12 有人裁紀錄的迴圈總數", r.returncode == 0 and t.get("loops") == 5, r.stdout[-500:] + r.stderr[-300:])
+    check("S12 分人裁種類", (t.get("by_decision") or {}) == {"extra-round": 4, "accept-risk": 1}, str(t))
+    check("S12 分級", (t.get("by_tier") or {}).get("high") == 1 and (t.get("by_tier") or {}).get("standard") == 4, str(t))
+    check("S12 已記回顧/已跳過/過期/沒有/不適用各 1",
+          [t.get(k) for k in ("recorded", "skipped", "stale", "none", "not_applicable")] == [1, 1, 1, 1, 1], str(t))
+    names = d.get("names") or {}
+    check("S12 名單:沒有的附 --template 指令", any("lc" in x.get("loop", "") and "--template" in x.get("cmd", "") for x in names.get("none") or []), str(names)[:400])
+    fam = d.get("families") or {}
+    check("S12 族別出現的迴圈數與名單(分級)",
+          (fam.get("same-family-unswept") or {}).get("loops") == ["la"] and (fam.get("fix-induced") or {}).get("count") == 1
+          and (fam.get("same-family-unswept") or {}).get("by_tier", {}).get("standard") == ["la"], str(fam)[:400])
+    acts = d.get("actions") or []
+    check("S12 所有行動項逐條列出(含所屬迴圈)", any(a.get("loop") == "la" and a.get("target") == "dispatch" and a.get("change") for a in acts), str(acts)[:300])
+    st = {x.get("loop"): x.get("state") for x in d.get("loops", [])}
+    for lp, want in (("la", "✓"), ("lc", "✗"), ("ld", "✗")):
+        g = _cr_gate(c, loop=lp)
+        check(f"S12 {lp} 的狀態({st.get(lp)})跟處置閘第八步一致", want in _cr_step8(g.stdout), _cr_step8(g.stdout))
+    r = run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"]))
+    check("S12 文字輸出列出各狀態", r.returncode == 0 and all(k in r.stdout for k in ("已記回顧", "已跳過", "過期", "沒有", "不適用", "same-family-unswept")), r.stdout[-600:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_doctor_lists_missing():
+    """[S13] doctor 列出要回顧但回顧沒有或過期的迴圈,不計入 issues。"""
+    import re as _re
+    c = _cr_repo()
+    _cr_loop(c, loop="la")
+    _cr_loop(c, loop="lc")
+    _cr_loop(c, loop="ld")
+    r0 = run(c["vault"], "doctor")
+
+    def issues(out):
+        m = _re.search(r"發現 (\d+) 個 issue", out)
+        return int(m.group(1)) if m else (0 if "0 issues" in out else None)
+    for lp in ("la", "lc", "ld"):
+        _cr_decide(c, loop=lp)
+    _cr_write_retro(c, _cr_retro_doc(c, loop="la"), loop="la")
+    _cr_retro(c, "--record", loop="la")
+    p = _cr_write_retro(c, _cr_retro_doc(c, loop="ld"), loop="ld")
+    _cr_retro(c, "--record", loop="ld")
+    p.write_text(p.read_text(encoding="utf-8").replace("同一族的出口", "同一族出口"), encoding="utf-8")
+    r = run(c["vault"], "doctor", "--verbose")
+    seg = r.stdout[r.stdout.find("跑滿回顧"):] if "跑滿回顧" in r.stdout else ""
+    check("S13 doctor 有跑滿回顧這一段", bool(seg), r.stdout[-800:])
+    check("S13 列出沒有與過期的迴圈並附 --template", "lc" in seg and "ld" in seg and "--template" in seg, seg[:600])
+    check("S13 合格的不列", "retro la " not in seg and "loop retro la" not in seg, seg[:600])
+    check("S13 不計入 issues", issues(r.stdout) == issues(r0.stdout) and issues(r0.stdout) is not None, f"{issues(r0.stdout)} → {issues(r.stdout)}")
+
+
+def t_cap_retro_existing_gate_steps_unchanged():
+    """[S15] 第八步上線後,既有處置閘相關測試維持綠(沒有人裁紀錄的迴圈,其餘七步與判定不變)。"""
+    before = FAIL
+    # 挑不超過單測時限的幾支(條款綁定 t_disposal_clause_gate 與 t_loop_replay_freeze_and_golden 各自另跑,太久不在這裡重跑)
+    for fn in (t_loop_status_disposal_gate, t_loop_disposal_zero_findings, t_disposal_gate_requires_landing,
+               t_disposal_cap_hint_without_changing_verdict, t_disposal_cap_hint_fail_open,
+               t_loop_replay_ignores_spec_gate_rows):
+        try:
+            fn()
+        except Exception as e:
+            check(f"S15 {fn.__name__} 沒有例外", False, repr(e))
+    check("S15 既有處置閘測試全綠", FAIL == before, f"多了 {FAIL - before} 條紅")
+
+
+@_cap_real_cutoff
+def t_cap_retro_bad_ledger_fail_closed():
+    """[S17] 有人裁紀錄的迴圈審查帳讀不動 → canary record 新一輪回 2、印帳壞在哪、落 cap-ledger-bad;處置閘第八步 ✗;不丟堆疊;沒人裁的不受影響。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry")
+    _cr_decide(c)
+    with open(c["docs"] / ".canary-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-09-20T11:00:00+08:00", "kind": "none", "loop": "crx", "round": 5, "auditor": "x", "token": "BAD"}) + "\n")
+        f.write(_j.dumps({"ts": "2026-09-20T11:00:00+08:00", "kind": "none", "loop": "cry", "round": 5, "auditor": "x", "token": "BAD2"}) + "\n")
+    n0 = _cr_canary_n(c)
+    r = _cr_record(c, "r4")
+    check("S17 輪次不是字串 → 新一輪回 2、不寫帳", r.returncode == 2 and _cr_canary_n(c) == n0, f"rc={r.returncode} {r.stderr[-300:]}")
+    check("S17 印帳壞在哪、不丟堆疊", "輪次" in r.stderr and "Traceback" not in r.stderr, r.stderr[-400:])
+    check("S17 落 cap-ledger-bad", len(_cr_blocked(c, "cap-ledger-bad")) == 1, str(_cr_gov(c, "canary")))
+    g = _cr_gate(c)
+    s8 = _cr_step8(g.stdout)
+    check("S17 處置閘第八步 ✗ 並印原因、不丟堆疊", "✗" in s8 and "Traceback" not in g.stderr and g.returncode != 0, s8 + g.stdout[-300:] + g.stderr[-300:])
+    r = _cr_record(c, "r4", loop="cry")
+    check("S17 沒有人裁紀錄的迴圈不受影響(照常寫帳、不落擋下)", r.returncode == 0 and len(_cr_blocked(c, "cap-ledger-bad")) == 1, r.stderr[-300:])
+    _cr_retro(c, "--skip", "--note", "人裁說帳壞了先跳過回顧再開一輪")
+    r = _cr_record(c, "r4")
+    check("S17 出口:--skip 之後照常寫帳", r.returncode == 0, r.stderr[-300:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    _cr_decide(c2)
+    with open(c2["docs"] / ".canary-log.jsonl", "ab") as f:
+        f.write(b"\xff\xfe broken line\n")
+    r = _cr_record(c2, "r4")
+    check("S17 帳不是 UTF-8 → 回 2、印帳壞在哪、落 cap-ledger-bad、不丟堆疊",
+          r.returncode == 2 and "UTF-8" in r.stderr and "Traceback" not in r.stderr and len(_cr_blocked(c2, "cap-ledger-bad")) == 1,
+          f"rc={r.returncode} {r.stderr[-300:]}")
+    g = _cr_gate(c2)
+    s8 = _cr_step8(g.stdout)
+    check("S17 帳不是 UTF-8 → 處置閘第八步 ✗、不丟堆疊", "✗" in s8 and "Traceback" not in g.stderr and g.returncode != 0, s8 + g.stderr[-300:])
+
+
+# ── 審查跑滿回顧:代碼審第一輪修正(governance/review-reports/code-審查跑滿回顧/r1-*)──
+_CR_MANUALS = ("skills/lumos-design-loop/SKILL.md", "skills/lumos-design-loop/reference.md", "skills/lumos-code-loop/SKILL.md",
+               "skills/lumos-code-loop/reference.md", "skills/lumos-project-notes/commands/05-設計審查迴圈.md")
+
+
+def _cr_run_to(c, *args, timeout=60):
+    try:
+        return subprocess.run([sys.executable, GRAPHCTL, "--vault", str(c["vault"]), *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _cr_next(c, *extra):
+    return run(c["vault"], "loop", "next", "crx", "--spec", str(c["spec"]), "--repo", str(c["root"]), *extra)
+
+
+@_cap_real_cutoff
+def t_cap_retro_template_write_no_clobber():
+    """[r1 第 1 組] 提示不再印 `--template > 檔` 的重導向(照貼會先清空已寫好的回顧);--template --write 只在檔不存在時建。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    p = c["loops"]["crx"]["rdir"] / "cap-retro.json"
+    r = _cr_retro(c, "--template", "--write")
+    d = _j.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    check("1 --template --write 檔不存在時建出骨架", r.returncode == 0 and d.get("rounds") == ["r1", "r2", "r3"], r.stdout[-300:] + r.stderr[-300:])
+    _cr_write_retro(c)
+    before = p.read_bytes()
+    r = _cr_retro(c, "--template", "--write")
+    check("1 回顧檔已存在 → 回 2、一個位元組都不動", r.returncode == 2 and p.read_bytes() == before, f"rc={r.returncode} {r.stderr[-300:]}")
+    p.unlink()
+    c["spec"].write_text(_CR_SPEC_TEXT + "審後又改了一行。\n", encoding="utf-8")
+    outs = {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr, "loop next": _cr_next(c).stdout,
+            "doctor": run(c["vault"], "doctor", "--verbose").stdout,
+            "retro-stats": run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"])).stdout}
+    for k, o in outs.items():
+        check(f"1 狀態沒有:{k} 印 --template --write、不印重導向", "--template --write" in o and "--template >" not in o, o[-500:])
+    c["spec"].write_text(_CR_SPEC_TEXT, encoding="utf-8")
+    p = _cr_write_retro(c)
+    _cr_retro(c, "--record")
+    p.write_text(p.read_text(encoding="utf-8").replace("同一族的出口", "同一族出口"), encoding="utf-8")
+    outs = {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr,
+            "doctor": run(c["vault"], "doctor", "--verbose").stdout,
+            "retro-stats": run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"])).stdout}
+    for k, o in outs.items():
+        check(f"1 狀態過期:{k} 叫人改好現有回顧檔、不印重導向", "改好現有回顧檔" in o and "--template >" not in o, o[-500:])
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    for rel in _CR_MANUALS + ("skills/lumos-design-loop/templates.md",):
+        f = repo / rel
+        if f.exists():
+            t = f.read_text(encoding="utf-8")
+            check(f"1 手冊 {rel} 不教重導向、教 --template --write", "--template >" not in t and "--template --write" in t, rel)
+
+
+@_cap_real_cutoff
+def t_cap_retro_ledger_line_separators():
+    """[r1 第 2 組/r2 第 7 組] 審查帳一列含 U+2028、U+2029、U+0085 不能被劈開丟掉(各一個案例,標籤跟內容一致);
+    retro 一族用既有 _loop_records 那套讀法,不另寫一套。"""
+    import json as _j
+    for label, ch in (("U+2028", chr(0x2028)), ("U+2029", chr(0x2029)), ("U+0085", chr(0x85))):
+        c = _cr_repo()
+        _cr_loop(c)
+        lg = c["docs"] / ".canary-log.jsonl"
+        rows = [_j.loads(x) for x in lg.read_text(encoding="utf-8").split("\n") if x.strip()]
+        rows[-1]["note"] = "貼來的" + ch + "文字"
+        lg.write_text("".join(_j.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+        check(f"2 前置:{label} 原樣落帳(沒被跳脫)", ch.encode("utf-8") in lg.read_bytes(), "")
+        r = _cr_decide(c)
+        check(f"2 含 {label} 的那列照算,第三輪在帳上 → 人裁記得進去", r.returncode == 0, r.stderr[-300:])
+        r = run(c["vault"], "loop", "next", "crx", "--json")
+        d = _j.loads(r.stdout) if r.stdout.strip().startswith("{") else {}
+        check(f"2 含 {label}:loop next 也照算三輪(接下來第 4 輪)", d.get("round") == 4, r.stdout[-300:])
+    m = _load_lumos()
+    check("2 retro 一族沒有另寫的審查帳讀法(_retro_canary_load 拿掉)", not hasattr(m, "_retro_canary_load"), "")
+
+
+@_cap_real_cutoff
+def t_cap_retro_gov_tail_newline():
+    """[r1 第 3 組] 治理帳檔尾缺換行(上次寫一半)時,新事件不能黏在半行後面被讀側丟掉。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    (c["docs"] / ".governance-log.jsonl").write_text('{"ts": "2026-10-01T00:00:00+08:00", "gate": "ci", "kind": "ha', encoding="utf-8")
+    r = _cr_decide(c)
+    check("3 人裁回成功", r.returncode == 0, r.stderr[-200:])
+    r = _cr_retro(c, "--template")
+    check("3 人裁讀得到(沒有黏在半行後面)", r.returncode == 0, r.stderr[-300:])
+    r = _cr_record(c, "r4")
+    check("3 擋點照常生效", r.returncode == 2, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_surrogate_no_crash():
+    """[r1 第 4 組] 回顧含孤立代理字元:--check 判型別不合格;retro-stats(含 --json)與 doctor 只標那一個、不炸。"""
+    import json as _j, hashlib as _h
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry")
+    _cr_decide(c)
+    _cr_decide(c, loop="cry")
+    doc = _cr_retro_doc(c)
+    doc["changes"][0]["change"] = "派工詞要求列出同族所有出口\ud800"
+    p = c["loops"]["crx"]["rdir"] / "cap-retro.json"
+    p.write_text(_j.dumps(doc, ensure_ascii=True), encoding="utf-8")
+    r = _cr_retro(c, "--check")
+    check("4 --check 判孤立代理字元不合格", r.returncode == 1 and "代理" in r.stdout and "Traceback" not in r.stderr, r.stdout[-300:] + r.stderr[-300:])
+    with open(c["docs"] / ".governance-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-10-05T10:00:00+08:00", "commit": "x", "gate": "loop-retro", "kind": "recorded", "hard": False,
+                          "nodes": [], "loop": "crx", "path": "governance/review-reports/crx/cap-retro.json",
+                          "retro_sha256": _h.sha256(p.read_bytes()).hexdigest(), "rounds": ["r1", "r2", "r3"]}) + "\n")
+    _cr_write_retro(c, loop="cry", doc=_cr_retro_doc(c, loop="cry"))
+    _cr_retro(c, "--record", loop="cry")
+    for extra in ((), ("--json",)):
+        r = run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"]), *extra)
+        check(f"4 retro-stats {' '.join(extra)} 不炸、另一個迴圈照算", r.returncode == 0 and "Traceback" not in r.stderr and "cry" in r.stdout,
+              r.stdout[-300:] + r.stderr[-300:])
+    r = run(c["vault"], "doctor")
+    check("4 doctor 不炸", "Traceback" not in r.stderr, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_nul_path_no_traceback():
+    """[r1 第 5 組] 路徑含 NUL:沒有人裁紀錄的迴圈問處置閘不丟堆疊;--check 的 evidence 判不合格。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    lg = c["docs"] / ".canary-log.jsonl"
+    rows = [_j.loads(x) for x in lg.read_text(encoding="utf-8").split("\n") if x.strip()]
+    rows[0]["report_path"] = "/abs\u0000x"
+    lg.write_text("".join(_j.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    r = _cr_gate(c)
+    check("5 沒有人裁紀錄、帳上非判定輪有 NUL 路徑 → 處置閘照常判(不丟堆疊)", "Traceback" not in r.stderr and r.returncode == 0, r.stderr[-400:] + r.stdout[-300:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    _cr_decide(c2)
+    _cr_write_retro(c2, _cr_retro_doc(c2) | {"families": [{"family": "fix-induced", "rounds": ["r2"], "evidence": ["/abs\u0000x"], "note": ""}]})
+    r = _cr_retro(c2, "--check")
+    check("5 evidence 含 NUL → --check 回 1 不丟堆疊", r.returncode == 1 and "evidence" in r.stdout and "Traceback" not in r.stderr, r.stdout[-300:] + r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_printed_cmd_escaped():
+    """[r1 第 6 組] retro-stats 與 doctor 印的指令含帳上編號,控制字元要清掉。"""
+    import json as _j
+    c = _cr_repo()
+    lid = "lx\x1b[31m"
+    _cr_loop(c, loop=lid)
+    with open(c["docs"] / ".governance-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-10-05T10:00:00+08:00", "commit": "x", "gate": "loop-retro", "kind": "cap-decision", "hard": False,
+                          "nodes": [], "note": "人裁決定破例再開一輪看最後修正", "loop": lid, "decision": "extra-round",
+                          "rounds": ["r1", "r2", "r3"], "tier": "standard", "cap": 3}) + "\n")
+    r = run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"]))
+    check("6 retro-stats 前置:列出這個迴圈", "lx" in r.stdout, r.stdout[-300:])
+    check("6 retro-stats 不印控制字元", "\x1b" not in r.stdout, repr(r.stdout[-300:]))
+    r = run(c["vault"], "doctor", "--verbose")
+    check("6 doctor 不印控制字元", "\x1b[31m" not in r.stdout and "lx" in r.stdout, repr(r.stdout[-300:]))
+
+
+@_cap_real_cutoff
+def t_cap_retro_fifo_symlink_not_read():
+    """[r1 第 7 組] 回顧檔被換成 FIFO 或符號連結:不跟隨、不卡住,判讀不到(過期)。"""
+    import os as _o
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    p = _cr_write_retro(c)
+    _cr_retro(c, "--record")
+    good = p.read_bytes()
+    p.unlink()
+    _o.mkfifo(p)
+    for label, args in (("處置閘", ("loop", "status", "crx", "--disposal", "--spec", str(c["spec"]), "--repo", str(c["root"]))),
+                        ("--check", ("loop", "retro", "crx", "--check", "--repo", str(c["root"]))),
+                        ("retro-stats", ("loop", "retro-stats", "--repo", str(c["root"])))):
+        r = _cr_run_to(c, *args, timeout=15)
+        check(f"7 FIFO:{label} 不卡住", r is not None and "Traceback" not in r.stderr, "逾時" if r is None else r.stderr[-300:])
+    r = _cr_run_to(c, "canary", "record", "none", "--loop", "crx", "--round", "r4", "--auditor", "s9-sonnet", "--severity", "clean",
+                   "--findings", "0", "--report", _sevrep(c["loops"]["crx"]["rdir"]), "--snapshot", str(c["loops"]["crx"]["rdir"] / "snapshot.md"), timeout=15)
+    check("7 FIFO:canary record 不卡住、照擋", r is not None and r.returncode == 2, "逾時" if r is None else r.stderr[-300:])
+    p.unlink()
+    real = c["root"] / "elsewhere.json"
+    real.write_bytes(good)
+    _o.symlink(real, p)
+    r = _cr_gate(c)
+    check("7 符號連結不跟隨 → 第八步 ✗", "✗" in _cr_step8(r.stdout), _cr_step8(r.stdout))
+
+
+@_cap_real_cutoff
+def t_cap_retro_record_reads_once():
+    """[r1 第 8 組] --record 驗檔與算指紋用同一份位元組:驗完之後檔被改,記下的指紋仍是驗過的那份。"""
+    import hashlib as _h, io, contextlib
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    p = _cr_write_retro(c)
+    want = _h.sha256(p.read_bytes()).hexdigest()
+    m = _load_lumos()
+    orig = m._cap_retro_check
+
+    def wrapped(*a, **k):
+        res = orig(*a, **k)
+        p.write_text(p.read_text(encoding="utf-8") + " ", encoding="utf-8")   # 驗完之後有人改了檔
+        return res
+    m._cap_retro_check = wrapped
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        rc = m.cmd_loop_retro(m.Env(c["vault"]), "crx", record=True, repo=str(c["root"]))
+    ev = [e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "recorded"]
+    check("8 記下的指紋是驗過的那份位元組", rc == 0 and ev and ev[-1].get("retro_sha256") == want, f"rc={rc} {ev}")
+
+
+@_cap_real_cutoff
+def t_cap_retro_single_fail_banner():
+    """[r1 第 10 組/r2 第 7 組] 處置閘的 FAIL 橫幅:正常判完與帳壞提前收尾兩條路輸出同一種格式(真的跑兩條路比輸出),
+    而且組字只有一處。"""
+    import json as _j, re as _re
+    pat = _re.compile(r"^⛔ DISPOSAL GATE FAIL \((?P<loop>[^ :]+)(?: 輪 (?P<rid>[^:]+))?: (?P<fails>[^)]+)\)$")
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    normal = next((l for l in _cr_gate(c).stdout.splitlines() if l.startswith("⛔ DISPOSAL GATE FAIL")), "")
+    with open(c["docs"] / ".canary-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-09-20T11:00:00+08:00", "kind": "none", "loop": "crx", "round": 5, "auditor": "x", "token": "BAD"}) + "\n")
+    bad = next((l for l in _cr_gate(c).stdout.splitlines() if l.startswith("⛔ DISPOSAL GATE FAIL")), "")
+    mn, mb = pat.match(normal), pat.match(bad)
+    check("10 正常路徑的橫幅格式", bool(mn) and mn.group("rid") == "r3" and "跑滿回顧" in mn.group("fails"), normal)
+    check("10 帳壞路徑的橫幅同一種格式(只少輪次)", bool(mb) and mb.group("loop") == "crx" and mb.group("rid") is None and mb.group("fails") == "跑滿回顧", bad)
+    src = "\n".join(l for l in Path(GRAPHCTL).read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("#"))
+    n = src.count("⛔ DISPOSAL GATE FAIL")
+    check("10 DISPOSAL GATE FAIL 橫幅只在一處組字", n == 1, f"實際 {n} 處")
+
+
+@_cap_real_cutoff
+def t_cap_retro_next_hint_scope_only():
+    """[r1 第 12 組] loop next 只對 cap-decision 收的迴圈(多席帶輪次、新、非 light)印記人裁那行;手冊到頂句標明適用範圍。"""
+    import io, contextlib
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="old", ts="2026-08-20T10:00:00+08:00")
+    _cr_loop(c, loop="seq", with_round=False)
+    _cr_loop(c, loop="lite", tier="light")
+    m = _load_lumos()
+    env = m.Env(c["vault"])
+    with contextlib.redirect_stdout(io.StringIO()):
+        got = {lp: " ".join(m._cap_retro_next_lines(env, lp, str(c["root"]))) for lp in ("crx", "old", "seq", "lite")}
+    check("12 範圍內的迴圈印記人裁指令", "cap-decision" in got["crx"], got["crx"])
+    for lp in ("old", "seq", "lite"):
+        check(f"12 {lp} 不在 cap-decision 範圍 → 不叫人記人裁", "cap-decision" not in got[lp], got[lp])
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    for rel in _CR_MANUALS:
+        f = repo / rel
+        if f.exists():
+            check(f"12 {rel} 到頂句標明多席帶輪次", "多席帶輪次" in f.read_text(encoding="utf-8"), rel)
+
+
+@_cap_real_cutoff
+def t_cap_retro_accept_risk_ledger_bad_exit():
+    """[r1 第 13 組] accept-risk 而審查帳壞:擋下訊息的出口是修帳或改記 extra-round,不是 --skip(--skip 解不了)。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c, decision="accept-risk", note="人裁接受剩下的風險不再開一輪")
+    with open(c["docs"] / ".canary-log.jsonl", "a", encoding="utf-8") as f:
+        f.write(_j.dumps({"ts": "2026-09-20T11:00:00+08:00", "kind": "none", "loop": "crx", "round": 5, "auditor": "x", "token": "BAD"}) + "\n")
+    r = _cr_record(c, "r4")
+    check("13 照擋 cap-ledger-bad", r.returncode == 2 and len(_cr_blocked(c, "cap-ledger-bad")) == 1, r.stderr[-300:])
+    check("13 出口講修帳或改記 extra-round,不講 --skip", "extra-round" in r.stderr and "--skip" not in r.stderr, r.stderr[-400:])
+    _cr_retro(c, "--skip", "--note", "人裁說帳壞了先跳過回顧再開一輪")
+    r = _cr_record(c, "r4")
+    check("13 --skip 之後照樣擋(訊息沒說謊)", r.returncode == 2, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_gate_registered_and_close_unaffected():
+    """[S14] loop-retro 登記在 _KNOWN_GATES、事件進版控帳(讀側只讀版控帳的理由);有 loop-retro 事件的迴圈 loop list 關門判定不變。"""
+    import json as _j
+    m = _load_lumos()
+    check("S14 loop-retro 在 _KNOWN_GATES", "loop-retro" in m._KNOWN_GATES, "")
+    for k in ("cap-decision", "recorded", "skipped"):
+        ev = m._gate_event_build("/tmp", "loop-retro", k, "n")
+        check(f"S14 loop-retro/{k} 不分流到本機帳(讀側只讀版控帳才對得上)", m._gov_routes_local(ev) is False, str(ev))
+    c = _cr_repo()
+    _cr_loop(c)
+
+    def listing():
+        r = run(c["vault"], "loop", "list", "--all", "--json", "--now", "2026-09-21")
+        try:
+            d = _j.loads(r.stdout)
+        except ValueError:
+            return None
+        return [(bucket, x.get("open")) for bucket in ("open", "stale", "closed")
+                for x in d.get(bucket) or [] if isinstance(x, dict) and x.get("loop") == "crx"]
+    before = listing()
+    _cr_decide(c)
+    _cr_retro(c, "--skip", "--note", "人裁說這次不寫回顧直接再開一輪")
+    after = listing()
+    check("S14 loop list 前置:列得出這個迴圈", bool(before), str(before))
+    check("S14 有 loop-retro 事件後 loop list 的關門判定不變", before == after, f"{before} → {after}")
+
+
+@_cap_real_cutoff
+def t_cap_retro_read_not_owner_ok():
+    """[r1 規格問題 1] 讀回顧檔不要求「是自己的檔」:共用機器或 CI 用別的帳號 checkout 時,合格回顧不能被判成過期。
+    只要求不跟隨捷徑、是一般檔、≤256KB(捷徑與管線由 t_cap_retro_fifo_symlink_not_read 守)。"""
+    import os as _o, io, contextlib
+    from unittest import mock as _mock
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    _cr_write_retro(c)
+    _cr_retro(c, "--record")
+    m = _load_lumos()
+    env = m.Env(c["vault"])
+    me = _o.getuid()
+    with _mock.patch.object(_o, "getuid", return_value=me + 4242), contextlib.redirect_stdout(io.StringIO()):
+        st = m._cap_retro_status(env, "crx", c["root"])
+        raw, err = m._retro_read_bytes(c["loops"]["crx"]["rdir"] / "cap-retro.json")
+    check("別人的檔:讀得到位元組", raw is not None and err is None, str(err))
+    check("別人的檔:合格回顧判已記回顧(不是過期)", st.get("state") == "recorded", f"{st.get('state')} {st.get('problems')}")
+
+
+# ── 審查跑滿回顧:代碼審第二輪修正(governance/review-reports/code-審查跑滿回顧/r2-*)──
+def _cr_set_field(c, loop, pick, key, val):
+    """把審查帳某些列的欄位改掉(json 預設 ensure_ascii,孤立代理字元落成 \\ud800 跳脫)。pick(row)→bool。"""
+    import json as _j
+    lg = c["docs"] / ".canary-log.jsonl"
+    rows = [_j.loads(x) for x in lg.read_text(encoding="utf-8").split("\n") if x.strip()]
+    for r in rows:
+        if r.get("loop") == loop and pick(r):
+            r[key] = val
+    lg.write_text("".join(_j.dumps(x) + "\n" for x in rows), encoding="utf-8")
+
+
+def _cr_run_bytes(c, *args):
+    return subprocess.run([sys.executable.encode(), GRAPHCTL.encode(), b"--vault", str(c["vault"]).encode(), *args], capture_output=True)
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_one_way():
+    """[r2 第 1 組] 第二種做法收回:檔尾補換行一支、開檔一支(擁有者檢查變參數)、終端跳脫一支;印給人照貼的指令編號都加引號、控制字元清掉。"""
+    import inspect, io, contextlib, tempfile as _tf
+    m = _load_lumos()
+    src = "\n".join(l for l in Path(GRAPHCTL).read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("#"))
+    check("1 讀檔尾最後一個位元組只有一處(既有 _drift_ledger_append 也共用)", src.count("seek(-1") == 0 and src.count("_ledger_tail_needs_newline(") >= 4,
+          f"seek(-1 {src.count('seek(-1')} 處;呼叫 {src.count('_ledger_tail_needs_newline(')} 處")
+    check("1 _regular_own_fd 有擁有者檢查參數(預設不變)",
+          inspect.signature(m._regular_own_fd).parameters.get("require_owner") is not None
+          and inspect.signature(m._regular_own_fd).parameters["require_owner"].default is True, "")
+    check("1 讀回顧檔不再自己開檔(走 _regular_own_fd)",
+          hasattr(m, "_retro_read_bytes") and "os.open(" not in inspect.getsource(m._retro_read_bytes), "")
+    check("1 _retro_safe 拿掉,只用 _esc_clean", not hasattr(m, "_retro_safe"), "")
+    cleaned = m._esc_clean("a‮b\ud800c\x1b]0;x\x07\x9bd")
+    check("1 _esc_clean 清掉雙向覆寫、孤立代理字元、ESC/OSC/C1", all(ch not in cleaned for ch in ("‮", "\ud800", "\x1b", "\x07", "\x9b")), repr(cleaned))
+    bidi = "".join(chr(c) for c in list(range(0x202A, 0x202F)) + list(range(0x2066, 0x206A)))
+    check("1 _esc_clean 清掉全部雙向覆寫與隔離字元(U+202A–U+202E、U+2066–U+2069)", m._esc_clean("x" + bidi + "y").strip("xy").strip() == "",
+          repr(m._esc_clean("x" + bidi + "y")))
+    keep = "家庭" + "\U0001F468‍\U0001F469‍\U0001F467" + " a‌b 軟­連 ﻿BOM"
+    check("1 _esc_clean 不動 ZWJ 組合表情、零寬非連字、軟連字號、BOM(逐字不變)", m._esc_clean(keep, 400) == keep, repr(m._esc_clean(keep, 400)))
+    tmp = Path(_tf.mkdtemp(prefix="gctl-capretro-q-"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        probs, _ = m._cap_retro_check(tmp, "x;touch PWNED", {"rounds": []}, [], None)
+    check("1 讀檔失敗訊息裡的指令編號加了引號", any("'x;touch PWNED'" in x for x in probs) and not any("retro x;touch" in x for x in probs), str(probs))
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_set_field(c, "crx", lambda r: r.get("round") == "r1", "round", "r1\x1b]0;PWNED\x07\x9b2J")
+    r = _cr_decide(c)
+    check("1 cap-decision 成功訊息不把帳上輪次的控制序列原樣印出", r.returncode == 0 and "\x1b" not in r.stdout and "\x9b" not in r.stdout, repr(r.stdout[-300:]))
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_unencodable():
+    """[r2 第 2 組] 不能編碼成 UTF-8 的字串:--template 的 context 印 null;--write 先編碼成功才建檔(不留 0 位元組殘檔);
+    cap-decision / --skip 的 --note 或帳上輪次不能編碼 → 回 2 說哪裡不合格、不寫帳、不丟堆疊。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_set_field(c, "crx", lambda r: r.get("round") == "r3", "auditor", "s1\ud800x")
+    r = _cr_decide(c)
+    check("2 前置:人裁記得進去(輪次正常)", r.returncode == 0, r.stderr[-300:])
+    r = _cr_retro(c, "--template")
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        d = {}
+    check("2 --template:帳上欄位不能編碼 → context 印 null、不丟堆疊", r.returncode == 0 and "context" in d and d["context"] is None
+          and "Traceback" not in r.stderr, r.stdout[-300:] + r.stderr[-300:])
+    p = c["loops"]["crx"]["rdir"] / "cap-retro.json"
+    r = _cr_retro(c, "--template", "--write")
+    ok = p.exists() and p.stat().st_size > 0
+    d = _j.loads(p.read_text(encoding="utf-8")) if ok else {}
+    check("2 --template --write:建出完整骨架(context null),不留 0 位元組殘檔", r.returncode == 0 and ok and d.get("context") is None
+          and "Traceback" not in r.stderr, r.stderr[-300:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    _cr_set_field(c2, "crx", lambda r: r.get("round") == "r3", "round", "r3\ud800")
+    r = _cr_decide(c2)
+    check("2 帳上輪次不能編碼 → cap-decision 回 2、說 UTF-8、不寫帳、不丟堆疊",
+          r.returncode == 2 and "UTF-8" in r.stderr and "Traceback" not in r.stderr and not _cr_gov(c2, "loop-retro"), r.stderr[-300:])
+    c3 = _cr_repo()
+    _cr_loop(c3)
+    r = _cr_run_bytes(c3, b"loop", b"cap-decision", b"crx", b"--decision", b"extra-round", b"--note", b"\xff\xfe invalid bytes note here ok",
+                      b"--repo", str(c3["root"]).encode())
+    err = r.stderr.decode("utf-8", "replace")
+    check("2 --note 不能編碼 → cap-decision 回 2、不寫帳、不丟堆疊", r.returncode == 2 and "Traceback" not in err and not _cr_gov(c3, "loop-retro"), err[-300:])
+    _cr_decide(c3)
+    r = _cr_run_bytes(c3, b"loop", b"retro", b"crx", b"--skip", b"--note", b"\xff\xfe skip note bytes invalid", b"--repo", str(c3["root"]).encode())
+    err = r.stderr.decode("utf-8", "replace")
+    check("2 --note 不能編碼 → --skip 回 2、不寫帳、不丟堆疊", r.returncode == 2 and "Traceback" not in err
+          and not [e for e in _cr_gov(c3, "loop-retro") if e.get("kind") == "skipped"], err[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_write_symlink_dossier():
+    """[r2 第 3 組] 卷證資料夾本身是符號連結(或解析後跑出 repo 根)→ --template --write 拒寫、回 2,repo 外不出現檔。"""
+    import os as _o, shutil as _sh, tempfile as _tf
+    c = _cr_repo()
+    _cr_loop(c)
+    outside = Path(_tf.mkdtemp(prefix="gctl-capretro-out-")) / "crx"
+    rdir = c["loops"]["crx"]["rdir"]
+    _sh.move(str(rdir), str(outside))
+    _o.symlink(outside, rdir)
+    _cr_decide(c)
+    r = _cr_retro(c, "--template", "--write")
+    check("3 卷證資料夾是符號連結 → 回 2", r.returncode == 2 and "Traceback" not in r.stderr, f"rc={r.returncode} {r.stderr[-300:]}")
+    check("3 repo 外沒有建出回顧檔", not (outside / "cap-retro.json").exists(), str(list(outside.iterdir())))
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_prompt_no_deadend():
+    """[r2 第 4 組] 提示不繞圈:狀態「沒有」但回顧檔已在 → 叫人 --check 再 --record;回顧檔位置是資料夾或捷徑 → 叫人移除再 --template --write。
+    處置閘、canary 擋下、loop next、doctor、retro-stats 同一支決定。"""
+    import os as _o
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    p = _cr_write_retro(c)
+    c["spec"].write_text(_CR_SPEC_TEXT + "審後又改了一行。\n", encoding="utf-8")
+
+    def outs():
+        return {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr, "loop next": _cr_next(c).stdout,
+                "doctor": run(c["vault"], "doctor", "--verbose").stdout,
+                "retro-stats": run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"])).stdout}
+    for k, o in outs().items():
+        check(f"4 回顧檔已在、還沒記:{k} 叫人 --check 再 --record、不叫人 --template --write",
+              "--check" in o and "--record" in o and "--template --write" not in o, o[-500:])
+    p.unlink()
+    p.mkdir()
+    for k, o in outs().items():
+        check(f"4 回顧檔位置是資料夾:{k} 叫人移除再 --template --write", "移除" in o and "--template --write" in o, o[-500:])
+    r = _cr_retro(c, "--check")
+    check("4 回顧檔位置是資料夾:--check 也叫人移除", r.returncode == 1 and "移除" in r.stdout, r.stdout[-300:])
+    p.rmdir()
+    _o.symlink(c["root"] / "nowhere.json", p)
+    r = _cr_retro(c, "--check")
+    check("4 回顧檔是懸空捷徑:--check 叫人移除", r.returncode == 1 and "移除" in r.stdout, r.stdout[-300:])
+    r = _cr_retro(c, "--write")
+    check("7 --write 沒帶 --template → 回 2", r.returncode == 2 and "--template" in r.stderr, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_cr_line_endings():
+    """[r2 第 5 組] 切行只認 \\r\\n、\\n、\\r:整本只有 \\r 行尾照樣切開;含 U+2028 的列處置閘也不再當壞行(跟 _loop_records 同一套)。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    lg = c["docs"] / ".canary-log.jsonl"
+    lg.write_bytes(lg.read_bytes().replace(b"\n", b"\r"))
+    r = _cr_gate(c)
+    check("5 只有 \\r 行尾:處置閘照常判(沒人裁 → 過)", r.returncode == 0 and "DISPOSAL GATE PASS" in r.stdout, r.stdout[-300:] + r.stderr[-300:])
+    r = _cr_decide(c)
+    check("5 只有 \\r 行尾:cap-decision 讀得到三輪", r.returncode == 0, r.stderr[-300:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    lg = c2["docs"] / ".canary-log.jsonl"
+    rows = [_j.loads(x) for x in lg.read_text(encoding="utf-8").split("\n") if x.strip()]
+    rows[0]["note"] = "貼來的" + chr(0x2028) + "文字"
+    lg.write_text("".join(_j.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    r = _cr_gate(c2)
+    check("5 含 U+2028 的列:處置閘不當壞行(照常過)", r.returncode == 0 and "DISPOSAL GATE PASS" in r.stdout, r.stdout[-300:] + r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r2_gov_not_regular():
+    """[r2 第 6 組] 讀治理帳只讀一般檔:治理帳被換成管線時不卡住。"""
+    import os as _o
+    c = _cr_repo()
+    _cr_loop(c)
+    gl = c["docs"] / ".governance-log.jsonl"
+    gl.unlink()
+    _o.mkfifo(gl)
+    r = _cr_run_to(c, "loop", "retro", "crx", "--template", "--repo", str(c["root"]), timeout=15)
+    check("6 治理帳是管線:retro 不卡住(當沒有人裁紀錄回 2)", r is not None and r.returncode == 2 and "Traceback" not in r.stderr,
+          "逾時" if r is None else r.stderr[-300:])
+
+
+
+# ── 審查跑滿回顧:代碼審第三輪修正(governance/review-reports/code-審查跑滿回顧/r3-*)──
+def _cr_gov_link(c, target):
+    """把治理帳換成指向 target 的符號連結(target 先放治理帳現在的內容)。"""
+    import os as _o
+    gl = c["docs"] / ".governance-log.jsonl"
+    target.write_bytes(gl.read_bytes() if gl.exists() else b"")
+    gl.unlink()
+    _o.symlink(target, gl)
+    return gl
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_gov_ledger_rule():
+    """[r3 第 1 組] 治理帳讀寫同一條規則:路徑某一層是符號連結、解析後不在 repo 裡、不是一般檔(管線、資料夾)或有別的硬連結
+    = 帳壞。讀端 fail-closed(帳上已到上限、有卷證的迴圈擋下,不當成沒有人裁);寫端(cap-decision、--record、--skip)回 2、
+    一個位元組都不往連結目標寫;擋下事件也不往連結目標寫。帳尾檢查跟著寫入器一起跟隨捷徑(其他閘的寫入器跟隨捷徑寫)。"""
+    import os as _o, tempfile as _tf
+    m = _load_lumos()
+    # A:一開始就是捷徑 → cap-decision 回 2、目標不動(repo 內、repo 外兩種)
+    for where in ("inside", "outside"):
+        c = _cr_repo()
+        _cr_loop(c)
+        tgt = (c["root"] / "shared-gov.jsonl") if where == "inside" else (Path(_tf.mkdtemp(prefix="gctl-capretro-gov-")) / "gov.jsonl")
+        _cr_gov_link(c, tgt)
+        before = tgt.read_bytes()
+        r = _cr_decide(c)
+        check(f"1 治理帳是捷徑({where}):cap-decision 回 2、說符號連結、目標一個位元組都沒寫",
+              r.returncode == 2 and "符號連結" in r.stderr and tgt.read_bytes() == before and "Traceback" not in r.stderr,
+              f"rc={r.returncode} {r.stderr[-300:]}")
+    # B:記完人裁後才被換成捷徑 → 讀端不當成沒有人裁;三個寫端回 2 不寫;canary 擋下不往目標寫
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_loop(c, loop="cry", n_rounds=2)
+    _cr_decide(c)
+    tgt = c["root"] / "shared-gov.jsonl"
+    _cr_gov_link(c, tgt)
+    before = tgt.read_bytes()
+    r = _cr_retro(c, "--template")
+    check("1 讀端:--template 回 2 說治理帳壞,不說沒有人裁紀錄", r.returncode == 2 and "治理帳" in r.stderr and "沒有人裁紀錄" not in r.stderr,
+          r.stderr[-300:])
+    _cr_write_retro(c)
+    for args in (("--check",), ("--record",), ("--skip", "--note", "人裁決定這次不寫回顧了喔")):
+        r = _cr_retro(c, *args)
+        check(f"1 {args[0]}:治理帳是捷徑 → 回 2、目標不動", r.returncode == 2 and "治理帳" in r.stderr and tgt.read_bytes() == before,
+              f"rc={r.returncode} {r.stderr[-300:]}")
+    n0 = _cr_canary_n(c)
+    r = _cr_record(c, "r4")
+    check("1 canary record 新一輪:擋下(不當成沒有人裁而放行)、審查帳不多列、擋下事件不往目標寫",
+          r.returncode == 2 and "治理帳" in r.stderr and _cr_canary_n(c) == n0 and tgt.read_bytes() == before, f"rc={r.returncode} {r.stderr[-300:]}")
+    r = _cr_record(c, "r3", loop="cry")
+    check("1 帳上還沒到上限的迴圈(不可能有人裁):照常記", r.returncode == 0, r.stderr[-300:])
+    s8 = _cr_step8(_cr_gate(c).stdout)
+    check("1 處置閘第八步 ✗(不印 — 沒有人裁紀錄)", "✗" in s8 and "治理帳" in s8, s8)
+    o = run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"])).stdout
+    check("1 retro-stats 標出治理帳讀不了(r4 起另外報,不當成一個迴圈)", "治理帳讀不了" in o, o[-400:])
+    o = run(c["vault"], "doctor", "--verbose").stdout
+    check("1 doctor I2 標出治理帳判不了", "治理帳" in o and "判不了" in o, o[-600:])
+    # C:管線 → 讀寫都不卡住、canary 擋下
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    gl = c["docs"] / ".governance-log.jsonl"
+    gl.unlink()
+    _o.mkfifo(gl)
+    r = _cr_run_to(c, "canary", "record", "none", "--loop", "crx", "--round", "r4", "--auditor", "s9-sonnet", "--severity", "clean",
+                   "--findings", "0", "--report", _sevrep(c["loops"]["crx"]["rdir"]), "--snapshot", str(c["loops"]["crx"]["rdir"] / "snapshot.md"),
+                   timeout=20)
+    check("1 治理帳是管線:canary record 新一輪不卡住、擋下", r is not None and r.returncode == 2 and "治理帳" in r.stderr,
+          "逾時" if r is None else r.stderr[-300:])
+    r = _cr_run_to(c, "loop", "cap-decision", "crx", "--decision", "extra-round", "--note", "人裁決定破例再開一輪看最後修正",
+                   "--repo", str(c["root"]), timeout=20)
+    check("1 治理帳是管線:cap-decision 不卡住、回 2", r is not None and r.returncode == 2, "逾時" if r is None else r.stderr[-300:])
+    # D:docs 這一層是捷徑(上層)也算帳壞
+    c = _cr_repo()
+    _cr_loop(c)
+    real_docs = c["root"] / "real-docs"
+    _o.rename(c["docs"], real_docs)
+    _o.symlink(real_docs, c["docs"])
+    r = _cr_decide(c)
+    check("1 docs 這一層是捷徑:cap-decision 回 2、不寫", r.returncode == 2 and b"loop-retro" not in (real_docs / ".governance-log.jsonl").read_bytes(),
+          r.stderr[-300:])
+    # E:帳尾檢查跟隨捷徑(其他閘照舊跟隨捷徑寫,目標檔尾缺換行要先補)
+    c = _cr_repo()
+    tgt = c["root"] / "shared-gov.jsonl"
+    gl = _cr_gov_link(c, tgt)
+    tgt.write_text('{"gate": "ci", "kind": "ha', encoding="utf-8")
+    check("1 帳尾檢查跟隨捷徑:目標缺換行 → True", m._ledger_tail_needs_newline(gl) is True, "")
+    ok = m._gate_event(c["root"], "canary", "blocked", "note-x", hard=True)
+    lines = tgt.read_text(encoding="utf-8").split("\n")
+    check("1 其他閘經捷徑寫入:新事件自成一行(沒黏在半行後面)", ok is True and len(lines) >= 2 and lines[1].startswith('{"ts"'), repr(lines[:3]))
+    fifo = c["root"] / "fifo"
+    _o.mkfifo(fifo)
+    lk = c["root"] / "fifo-link"
+    _o.symlink(fifo, lk)
+    check("1 帳尾檢查:捷徑指到管線不卡住、回 False", m._ledger_tail_needs_newline(lk) is False, "")
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_write_path_shared_guard():
+    """[r3 第 2 組] --template --write 的落點與讀回顧檔走同一支共用的 _repo_path_unsafe:上層(governance、review-reports)是
+    符號連結也擋,不另寫 realpath/startswith 檢查;讀端對同一個落點給同樣的答案。"""
+    import os as _o, inspect
+    m = _load_lumos()
+    src = inspect.getsource(m.cmd_loop_retro)
+    check("2 cmd_loop_retro 不再自己算 realpath/startswith", "realpath" not in src and "startswith(os.path" not in src, "")
+    for layer in ("governance", "governance/review-reports"):
+        c = _cr_repo()
+        _cr_loop(c)
+        real = c["root"] / ("elsewhere-" + layer.replace("/", "-"))
+        lp = c["root"] / layer
+        _o.rename(lp, real)
+        _o.symlink(real, lp)
+        _cr_decide(c)
+        r = _cr_retro(c, "--template", "--write")
+        check(f"2 {layer} 是捷徑(指 repo 內):--template --write 回 2、不建檔",
+              r.returncode == 2 and not list(real.rglob("cap-retro.json")) and "Traceback" not in r.stderr, f"rc={r.returncode} {r.stderr[-300:]}")
+        tgt = next(real.rglob("crx"))
+        (tgt / "cap-retro.json").write_text(__import__("json").dumps(_cr_retro_doc(c), ensure_ascii=False), encoding="utf-8")
+        r = _cr_retro(c, "--check")
+        check(f"2 {layer} 是捷徑:讀端同樣不認這個落點(--check 不判合格)", r.returncode != 0, r.stdout[-300:] + r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_ledger_lines_everywhere():
+    """[r3 第 3 組] 審查帳與治理帳的讀者切行一律走 _ledger_lines(不用 splitlines):原始碼裡沒有對這兩本帳 .splitlines() 的讀法;
+    含 U+2028 的列在各讀者眼中都是同一列。"""
+    import ast, re as _re, types, json as _j
+    src = Path(GRAPHCTL).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    lines = src.splitlines()
+    led = r"(?:canary-log\.jsonl|governance-log\.jsonl|GOV_LOG_NAME)"
+    hits = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = "\n".join(lines[node.lineno - 1:node.end_lineno])
+        for mm in _re.finditer(led + r"\"?\)?\.read_text\([^)]*\)\.splitlines\(\)", body):
+            hits.add(node.name)
+        for v in set(_re.findall(r"(\w+)\s*=\s*[^\n]*" + led, body)):
+            if _re.search(r"\b" + _re.escape(v) + r"\.read_text\([^)]*\)\.splitlines\(\)", body):
+                hits.add(node.name)
+    check("3 讀審查帳/治理帳的函式都不用 splitlines 切行", not hits, ", ".join(sorted(hits)))
+    m = _load_lumos()
+    c = _cr_repo()
+    _cr_loop(c)
+    lg = c["docs"] / ".canary-log.jsonl"
+    rows = [_j.loads(x) for x in lg.read_text(encoding="utf-8").split("\n") if x.strip()]
+    rows[0]["auditor"] = "a" + chr(0x2028) + "b"
+    rows.append({"kind": "spec-gate", "loop": "crx", "ts": "2026-09-20T10:00:00+08:00", "note": "x" + chr(0x2029), "door": "light"})
+    lg.write_text("".join(_j.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    (c["docs"] / ".governance-log.jsonl").write_text(
+        _j.dumps({"gate": "design-loop", "kind": "converged", "nodes": ["crx"], "note": "y" + chr(0x2028)}, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    env = types.SimpleNamespace(vault=c["vault"])
+    check("3 _loop_first_ts_key:含 U+2028 的第一列照算", m._loop_first_ts_key(env, "crx") is not None, "")
+    by = m._escape_review_rows_by_loop(env)
+    check("3 _escape_review_rows_by_loop:三列都在", len(by.get("crx", [])) == 3, str(len(by.get("crx", []))))
+    check("3 _spec_gate_latest_records:含 U+2029 的留痕照讀", "crx" in m._spec_gate_latest_records(env), "")
+    check("3 _escape_released_loops:治理帳含 U+2028 的 converged 照讀", "crx" in m._escape_released_loops(env, {"crx"}), "")
+    r = run(c["vault"], "loop", "verify-progress", "crx", "--json")
+    check("3 verify-progress:含 U+2028 的列不當壞行(不回 2)", r.returncode != 2, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_template_escapes():
+    """[r3 第 4 組] --template 的標準輸出與 --write 建的檔:從帳上帶來的字串裡的 C1(\\x9b、\\x9c、\\x9d)、雙向覆寫與隔離字元、
+    行段分隔字元都以 \\uXXXX 跳脫(JSON 讀回來值不變,rounds 照樣等於人裁紀錄)。"""
+    import json as _j
+    bad = "\x9d52;c;ZXZpbA==\x9c\x9b31m\u202e\u2066\u2028"
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_set_field(c, "crx", lambda r: r.get("round") == "r2", "auditor", "s1" + bad)
+    _cr_set_field(c, "crx", lambda r: r.get("round") == "r1", "round", "r1\x9b2J\u202e")
+    r = _cr_decide(c)
+    check("4 前置:人裁記得進去", r.returncode == 0, r.stderr[-300:])
+    want = next(e for e in _cr_gov(c, "loop-retro") if e.get("kind") == "cap-decision")["rounds"]
+    r = _cr_retro(c, "--template")
+    danger = "\x9b\x9c\x9d\u202e\u2066\u2028"
+    raw_hits = [repr(ch) for ch in danger if ch in r.stdout]
+    check("4 --template 標準輸出不帶原樣的 C1/雙向/分隔字元", r.returncode == 0 and not raw_hits, str(raw_hits))
+    try:
+        d = _j.loads(r.stdout)
+    except ValueError:
+        d = {}
+    auds = [x.get("auditor") for x in ((d.get("context") or {}).get("reports") or [])]
+    check("4 讀回來值不變(context 的 auditor、rounds 等於人裁紀錄)", ("s1" + bad) in auds and d.get("rounds") == want, f"{auds} {d.get('rounds')} {want}")
+    p = c["loops"]["crx"]["rdir"] / "cap-retro.json"
+    r = _cr_retro(c, "--template", "--write")
+    t = p.read_text(encoding="utf-8") if p.exists() else ""
+    raw_hits = [repr(ch) for ch in danger if ch in t]
+    check("4 --write 建的檔不帶原樣的 C1/雙向/分隔字元", r.returncode == 0 and t and not raw_hits, str(raw_hits))
+    check("4 --write 的檔讀回來 rounds 等於人裁紀錄", t and _j.loads(t).get("rounds") == want, t[:200])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_prompt_table():
+    """[r3 第 5 組] 回顧檔狀態 → 下一步提示:每種狀態給的指令照做之後不會回到同一句提示。"""
+    import os as _o, shutil as _sh
+
+    def fresh():
+        c = _cr_repo()
+        _cr_loop(c)
+        _cr_decide(c)
+        return c, c["loops"]["crx"]["rdir"] / "cap-retro.json"
+
+    def hints(c):
+        return {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr, "--check": _cr_retro(c, "--check").stdout,
+                "--template --write": _cr_retro(c, "--template", "--write").stderr}
+    for label, make in (("超過 256KB", lambda p: p.write_bytes(b"x" * 300000)),
+                        ("空檔", lambda p: p.write_bytes(b"")),
+                        ("建一半", lambda p: p.write_bytes(b'{"version": 1, "lo')),
+                        ("根不是物件", lambda p: p.write_bytes(b"[1, 2]"))):
+        c, p = fresh()
+        make(p)
+        for k, o in hints(c).items():
+            check(f"5 {label}:{k} 叫人刪除或改名再 --template --write,不叫人再跑 --check",
+                  "刪除或改名" in o and "--template --write" in o and "--check 過了" not in o, o[-400:])
+        p.unlink()
+        r = _cr_retro(c, "--template", "--write")
+        check(f"5 {label}:照提示刪掉後 --template --write 建得起來", r.returncode == 0, r.stderr[-300:])
+    if hasattr(_o, "getuid") and _o.getuid() != 0:
+        c, p = fresh()
+        _cr_write_retro(c)
+        _o.chmod(p, 0)
+        o = _cr_retro(c, "--check").stdout
+        check("5 讀不動(權限 000):--check 叫人刪除或改名再 --template --write", "刪除或改名" in o and "--check 過了" not in o, o[-300:])
+        _o.chmod(p, 0o644)
+    c, p = fresh()
+    _cr_write_retro(c)
+    _cr_retro(c, "--record")
+    p.unlink()
+    for k, o in {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr}.items():
+        check(f"5 記過回顧後檔被刪:{k} 叫人 --template --write 重建、不叫人改好現有檔",
+              "--template --write" in o and "改好現有" not in o, o[-400:])
+    r = _cr_retro(c, "--template", "--write")
+    check("5 記過回顧後檔被刪:照提示 --template --write 建得起來", r.returncode == 0, r.stderr[-300:])
+    c, p = fresh()
+    rdir = c["loops"]["crx"]["rdir"]
+    alt = c["root"] / "altdir"
+    _sh.move(str(rdir), str(alt))
+    _o.symlink(alt, rdir)
+    outs = {"處置閘": _cr_gate(c).stdout, "canary 擋下": _cr_record(c, "r4").stderr, "--check": _cr_retro(c, "--check").stdout,
+            "loop next": _cr_next(c).stdout, "retro-stats": run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"])).stdout}
+    for k, o in outs.items():
+        check(f"5 卷證資料夾是捷徑:{k} 不叫人跑會被拒的 --template --write、說資料夾", "--template --write" not in o and "卷證資料夾" in o, o[-400:])
+    r = _cr_retro(c, "--skip", "--note", "人裁決定這次不寫回顧了喔")
+    check("5 卷證資料夾是捷徑:提示裡的 --skip 走得通", r.returncode == 0, r.stderr[-300:])
+
+
+@_cap_real_cutoff
+def t_cap_retro_r3_writers_portable():
+    """[r3 第 6 組] 治理帳三支寫入器遇到不能編碼的字串都回「寫不進去」不丟堆疊;帳尾檢查不用 os.pread(沒有它的平台照常)。"""
+    import os as _o
+    m = _load_lumos()
+    c = _cr_repo()
+    gl = c["docs"] / ".governance-log.jsonl"
+    gll = c["docs"] / ".governance-local.jsonl"
+    gl.write_text('{"gate": "ci"}\n', encoding="utf-8")
+    before = gl.read_bytes()
+    for label, evs in (("版控帳", [{"gate": "delguard", "kind": "x", "hard": True, "nodes": ["a\udcff"]}]),
+                       ("本機帳", [{"gate": "doctor-run", "kind": "ran", "hard": False, "note": "b\ud800"}])):
+        try:
+            m._append_governance_log(c["vault"], evs)
+            err = None
+        except Exception as e:
+            err = e
+        check(f"6 _append_governance_log({label}):不能編碼 → 不丟堆疊、帳不動", err is None and gl.read_bytes() == before
+              and not (gll.exists() and b"doctor-run" in gll.read_bytes()), repr(err))
+    check("6 _gate_event(版控帳):不能編碼 → False", m._gate_event(c["root"], "canary", "blocked", "x\ud800", hard=True) is False, "")
+    check("6 _gate_event(本機帳):不能編碼 → False", m._gate_event(c["root"], "doctor-run", "ran", "x\ud800") is False, "")
+    check("6 _local_ledger_append:不能編碼 → False", m._local_ledger_append(gll, "x\ud800\n") is False, "")
+    src = Path(GRAPHCTL).read_text(encoding="utf-8")
+    check("6 原始碼不用 os.pread", "os.pread(" not in src, "")
+    p = c["root"] / "half.jsonl"
+    p.write_bytes(b'{"a": 1')
+    saved = getattr(_o, "pread", None)
+    try:
+        if saved is not None:
+            del _o.pread
+        try:
+            res = m._ledger_tail_needs_newline(p)
+        except AttributeError as e:
+            res = e
+    finally:
+        if saved is not None:
+            _o.pread = saved
+    check("6 沒有 os.pread 的平台:帳尾檢查照常(缺換行 → True)", res is True, repr(res))
+
+
+def t_cap_retro_r3_one_way():
+    """[r3 第 7 組] 不能編碼的判法只用既有 _fix_bad_strings(_retro_utf8_bad 拿掉;跑滿回顧不把空字元當編碼錯);
+    _esc_clean 說明為什麼不用 _PATH_SPECIAL_CATS;骨架 JSON 的跳脫用共用的 _PATH_SPECIAL_CATS。"""
+    import inspect
+    m = _load_lumos()
+    check("7 _retro_utf8_bad 拿掉", not hasattr(m, "_retro_utf8_bad"), "")
+    check("7 _fix_bad_strings 能不查空字元(nul=False)", m._fix_bad_strings(["a\x00b"], nul=False) == ""
+          and m._fix_bad_strings(["a\ud800"], nul=False) != "" and m._fix_bad_strings(["a\x00b"]) != "", "")
+    check("7 _esc_clean 說明寫了為什麼不用 _PATH_SPECIAL_CATS", "_PATH_SPECIAL_CATS" in (m._esc_clean.__doc__ or ""), "")
+    check("7 骨架 JSON 跳脫用 _PATH_SPECIAL_CATS", hasattr(m, "_json_text_escaped") and "_PATH_SPECIAL_CATS" in inspect.getsource(m._json_text_escaped), "")
+
+
+
+def _cr_ask_count(out):
+    """輸出裡叫人記人裁的指令出現幾次(只數指令本身,不數「已有人裁紀錄」這類狀態句)。"""
+    return out.count("lumos loop cap-decision")
+
+
+@_cap_real_cutoff
+def t_cap_retro_r4_cap_decision_single_source():
+    """[r4 第 1 組] 記人裁的提示只有一處決定(_cap_retro_next_lines),[cap-hint] 的「人裁:」那行就是它:
+    loop next 到 cap-reached 只印一次;converged 到上限也印、處置閘也印;已有人裁不再叫人記;治理帳壞不叫人記。"""
+    c = _cr_repo()
+    _cr_loop(c)
+    c["spec"].write_text(_CR_SPEC_TEXT + "審後又改了一行。\n", encoding="utf-8")   # G3 不過 → cap-reached
+    r = _cr_next(c)
+    check("1 前置:cap-reached", "現在狀態 cap-reached" in r.stdout, r.stdout[-400:])
+    check("1 cap-reached:記人裁的指令只印一次", _cr_ask_count(r.stdout) == 1, r.stdout[-900:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    r = _cr_next(c2)
+    check("1 前置:converged", "現在狀態 converged" in r.stdout, r.stdout[-400:])
+    check("1 converged 到上限:記人裁的指令也印(一次)", _cr_ask_count(r.stdout) == 1, r.stdout[-900:])
+    r = _cr_gate(c2)
+    check("1 處置閘過閘到上限:記人裁的指令也印(一次)", _cr_ask_count(r.stdout) == 1, r.stdout[-900:])
+    _cr_decide(c)
+    r = _cr_next(c)
+    check("1 已有人裁:不再叫人記人裁", _cr_ask_count(r.stdout) == 0 and "已有人裁紀錄" in r.stdout, r.stdout[-900:])
+    r = _cr_gate(c)
+    check("1 已有人裁(處置閘):不再叫人記人裁", _cr_ask_count(r.stdout) == 0, r.stdout[-900:])
+    c3 = _cr_repo()
+    _cr_loop(c3)
+    _cr_gov_link(c3, c3["root"] / "shared-gov.jsonl")
+    for label, out in (("loop next", _cr_next(c3).stdout), ("處置閘", _cr_gate(c3).stdout)):
+        check(f"1 治理帳壞({label}):不叫人記人裁(記了也會回 2),改講治理帳",
+              _cr_ask_count(out) == 0 and "治理帳" in out, out[-900:])
+    import inspect
+    m = _load_lumos()
+    check("1 [cap-hint] 不自己組記人裁的指令(交給 _cap_retro_next_lines)", "cap-decision" not in inspect.getsource(m._cap_hint_lines)
+          and "_cap_retro_next_lines" in inspect.getsource(m._cap_hint_lines), "")
+
+
+@_cap_real_cutoff
+def t_cap_retro_r4_gov_bad_not_a_loop():
+    """[r4 第 2 組] 治理帳壞時 retro-stats 與 doctor I2 不把「治理帳」當成一個記了人裁的迴圈,另外報治理帳讀不了。"""
+    import json as _j
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_gov_link(c, c["root"] / "shared-gov.jsonl")
+    r = run(c["vault"], "loop", "retro-stats", "--json", "--repo", str(c["root"]))
+    d = _j.loads(r.stdout) if r.stdout.strip().startswith("{") else {}
+    check("2 retro-stats --json:totals.loops 不被灌 1", d.get("totals", {}).get("loops") == 0 and not d.get("loops"), r.stdout[-400:])
+    check("2 retro-stats --json:另外報治理帳讀不了", bool(d.get("gov_error")) and "治理帳" in d.get("gov_error", ""), r.stdout[-400:])
+    r = run(c["vault"], "loop", "retro-stats", "--repo", str(c["root"]))
+    check("2 retro-stats 文字:講治理帳讀不了,不說有 1 個迴圈",
+          "治理帳讀不了" in r.stdout and "迴圈 1 個" not in r.stdout and "(治理帳)" not in r.stdout, r.stdout[-400:])
+    r = run(c["vault"], "doctor", "--verbose")
+    i2 = r.stdout[r.stdout.find("I2"):][:800]
+    check("2 doctor I2:講治理帳讀不了,不列假迴圈", "治理帳讀不了" in i2 and "(治理帳)" not in i2, i2)
+
+
+@_cap_real_cutoff
+def t_cap_retro_r4_round_id_escaped():
+    """[r4 第 3 組] 帳上的輪次編號與迴圈編號印到終端前先過 _esc_clean:[cap-hint] 的每輪那行、處置閘 FAIL 橫幅。"""
+    import io, contextlib
+    m = _load_lumos()
+    bad = ["r1\x1b]0;PWNED\x07", "r2\x9b31m", "r3\u202e"]
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    for r in rows:
+        r["round"] = {"r1": bad[0], "r2": bad[1], "r3": bad[2]}[r["round"]]
+    txt = "\n".join(m._cap_hint_lines(m._cap_hint(rows)))
+    check("3 [cap-hint] 每輪那行不帶 ESC、C1、雙向字元", not any(ch in txt for ch in ("\x1b", "\x07", "\x9b", "\u202e")), repr(txt))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        m._disposal_fail_banner("crx\x1b[2J", bad[0], ["G3"])
+        m._disposal_fail_banner("cry\x9b1m", None, ["跑滿回顧"])
+    out = buf.getvalue()
+    check("3 處置閘 FAIL 橫幅:編號與輪次不帶 ESC、C1", not any(ch in out for ch in ("\x1b", "\x07", "\x9b")) and out.count("DISPOSAL GATE FAIL") == 2, repr(out))
+
+
+@_cap_real_cutoff
+def t_cap_retro_r4_gov_unreadable_hint():
+    """[r4 第 4 組] 治理帳是一般檔但讀不動(權限)時,出口提示講權限,不只叫人換回一般檔;捷徑仍叫人換回一般檔。"""
+    import os as _o
+    if hasattr(_o, "geteuid") and _o.geteuid() == 0:
+        check("4 root 讀得動任何檔,略過", True, "")
+        return
+    m = _load_lumos()
+    c = _cr_repo()
+    _cr_loop(c)
+    _cr_decide(c)
+    gl = c["docs"] / ".governance-log.jsonl"
+    _o.chmod(gl, 0)
+    try:
+        hint = m._cap_retro_fix_cmd(c["root"], "crx", "gov-bad")
+        g = _cr_gate(c).stdout
+        rec = _cr_record(c, "r4").stderr
+    finally:
+        _o.chmod(gl, 0o644)
+    check("4 讀不動:出口提示講權限", "權限" in hint, hint)
+    check("4 讀不動:處置閘的出口講權限", "權限" in g, g[-600:])
+    check("4 讀不動:canary 擋下的出口講權限", "權限" in rec, rec[-600:])
+    c2 = _cr_repo()
+    _cr_loop(c2)
+    _cr_gov_link(c2, c2["root"] / "shared-gov.jsonl")
+    hint = m._cap_retro_fix_cmd(c2["root"], "crx", "gov-bad")
+    check("4 捷徑:仍叫人換回一般檔", "一般檔" in hint, hint)
+
+
+def t_cap_retro_r4_gov_batch_skips_bad():
+    """[r4 第 5 組] _append_governance_log 一筆不能編碼時只略過那一筆,同一批其他事件照寫,並在 stderr 講一句。"""
+    import io, contextlib, json as _j
+    m = _load_lumos()
+    c = _cr_repo()
+    gl = c["docs"] / ".governance-log.jsonl"
+    evs = [{"gate": "check-s", "kind": "warned", "hard": True, "nodes": ["good-node"]},
+           {"gate": "check-s", "kind": "warned", "hard": True, "nodes": ["bad\udcffnode"]}]
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        m._append_governance_log(c["vault"], evs)
+    rows = [_j.loads(x) for x in gl.read_text(encoding="utf-8").split("\n") if x.strip()]
+    check("5 好的那筆照寫", [r.get("nodes") for r in rows] == [["good-node"]], repr(rows))
+    check("5 壞的那筆略過時講一句", "略過" in err.getvalue() and "1 筆" in err.getvalue(), err.getvalue())
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        m._append_governance_log(c["vault"], [{"gate": "doctor-run", "kind": "ran", "hard": False, "note": "x\ud800"},
+                                              {"gate": "doctor-run", "kind": "ran", "hard": False, "note": "ok"}])
+    gll = c["docs"] / ".governance-local.jsonl"
+    check("5 本機帳也只略過壞的那筆", gll.exists() and gll.read_text(encoding="utf-8").count("doctor-run") == 1
+          and "略過" in err.getvalue(), err.getvalue())
+
+
+def _fc_preflight_probe(case):
+    """真實 CLI、隔離工作樹與 runner 日誌；不從摘要文字猜是否執行。"""
+    import json as _j
+    extra = "\ndef t_inv_cap():\n    assert " + ("False" if case == "bound-red" else "prod.clamp(9) == 5") + "\n"
+    extra += "\ndef t_expected_failure():\n    assert False\n"
+    root, vault, base, _head = _fc_env(contract=True, tests_extra=extra,
+        base_files={"run.py": _FC_RUNNER.replace("cwd={os.getcwd()} link=", "method={name} cwd={os.getcwd()} link=")})
+    if case == "command":
+        cp = root / ".lumos" / "config.json"
+        cfg = _j.loads(cp.read_text())
+        cfg["test"]["run_cmd"] = "python3 run.py -k t_clamp_cap"
+        cp.write_text(_j.dumps(cfg))
+        _fc_git(root, "add", ".lumos/config.json")
+        _fc_git(root, "commit", "-qm", "fixture without method placeholder")
+    _fc_ledger(root, vault)
+    rnd = "r1"
+    group = _fc_group()
+    if case == "repeat":
+        _fc_record(root, base, [group])
+        _fc_ledger(root, vault, rnd="r2", findings="g1", folded="g1", sevs={"g1": "major"})
+        rnd, group = "r2", _fc_group(findings=["g1"])
+    elif case == "record":
+        group = _fc_group(cat="invalid-category")
+    elif case == "mixed":
+        group = _fc_group(cat="invalid-category", tests=["t_clamp_cap", "t_missing_method"])
+    elif case == "missing":
+        group = _fc_group(tests=["t_missing_method"])
+    elif case == "test-red":
+        group = _fc_group(tests=["t_expected_failure"])
+    _fc_record(root, base, [group], rnd=rnd)
+    log = root / "runner-executions.txt"
+    result = _fc_check(root, vault, "--json", rnd=rnd, env_extra={"FC_LOG": str(log)})
+    data = _j.loads(result.stdout.strip().splitlines()[-1])
+    executed = log.read_text().splitlines() if log.exists() else []
+    launches = len(executed)
+    methods = [line.split()[0].removeprefix("method=") for line in executed]
+    events = _fc_events(root)
+    check(f"前置 {case}:恰好一筆事件", len(events) == 1, str(events))
+    check(f"前置 {case}:隔離工作樹已清理",
+          _fc_git(root, "worktree", "list", "--porcelain").stdout.count("worktree ") == 1)
+    return result, data, launches, events, methods, (root, vault)
+
+
+def _fc_preflight_assert_stopped(case, expected):
+    result, data, launches, events, _methods, _context = _fc_preflight_probe(case)
+    check(f"前置 {case}:保持回 1 與失敗", result.returncode == 1 and data["passed"] is False, result.stdout)
+    check(f"前置 {case}:收齊便宜錯誤", set(data["failed"]) == set(expected), str(data["failed"]))
+    check(f"前置 {case}:零測試 runner 啟動", launches == 0, str(launches))
+    check(f"前置 {case}:明示未執行而非通過",
+          any("修正測試" in n and "合約測試" in n and "未執行" in n and "重跑" in n for n in data["notes"]), str(data["notes"]))
+    check(f"前置 {case}:事件只記 warned", len(events) == 1 and events[0]["kind"] == "warned", str(events))
+
+
+def t_fix_check_preflight_record_stops_runners():
+    """[S1] 混合靜態錯誤收齊後失敗，不能先執行有效方法與合約。"""
+    _fc_preflight_assert_stopped("record", ("record",))
+    _fc_preflight_assert_stopped("mixed", ("record", "tests-exist"))
+
+
+def t_fix_check_preflight_repeat_stops_runners():
+    """[S2] 同類 major 缺原因說明時，先停而非跑完才回報。"""
+    _fc_preflight_assert_stopped("repeat", ("repeat",))
+
+
+def t_fix_check_preflight_missing_stops_runners():
+    """[S3] 方法不存在不能繼續啟動合約 runner。"""
+    _fc_preflight_assert_stopped("missing", ("tests-exist",))
+
+
+def t_fix_check_preflight_command_stops_runners():
+    """[S4] 命令無方法占位符是配置錯誤，零執行且仍失敗。"""
+    _fc_preflight_assert_stopped("command", ("tests-green",))
+
+
+def t_fix_check_preflight_valid_still_runs():
+    """[S5] 前置全過仍跑兩段；真紅不能被順序優化隱藏。"""
+    for case, expected in (("valid", ()), ("test-red", ("tests-green",)), ("bound-red", ("bound-tests",))):
+        result, data, launches, events, methods, _context = _fc_preflight_probe(case)
+        check(f"有效 {case}:兩段 runner 都啟動", launches == 2, str(launches))
+        wanted = ["t_expected_failure" if case == "test-red" else "t_clamp_cap", "t_inv_cap"]
+        check(f"有效 {case}:兩段各執行自己的方法", methods == wanted, str(methods))
+        check(f"有效 {case}:保持綠紅判定", result.returncode == bool(expected)
+              and data["passed"] is (not expected) and set(data["failed"]) == set(expected), str(data))
+        check(f"有效 {case}:事件保持原判定", len(events) == 1
+              and events[0]["kind"] == ("warned" if expected else "passed"), str(events))
+        check(f"有效 {case}:沒有未執行提示", not any("前置檢查失敗" in n for n in data["notes"]), str(data["notes"]))
+
+
+def t_fix_check_preflight_not_run_is_durable():
+    """[S6] 同一失敗種類也能區分未執行；歷史列保持未知且壞型別不消費。"""
+    import contextlib as _ctx
+    import io as _io
+    import json as _j
+    from unittest import mock as _mock
+    m = _load_lumos_module()
+    for case, wanted in (("record", ["tests-green", "bound-tests"]), ("valid", [])):
+        _result, data, _launches, events, _methods, (root, vault) = _fc_preflight_probe(case)
+        check(f"留痕 {case}:JSON 明示兩段狀態", data.get("not_run_items") == wanted, str(data))
+        check(f"留痕 {case}:治理事件同樣持久保存", len(events) == 1
+              and events[0].get("not_run_items") == wanted, str(events))
+        legacy = dict(events[0])
+        legacy.pop("not_run_items", None)
+        legacy["token"] += "-legacy"
+        broken = dict(events[0], not_run_items="wrong-type", token=events[0]["token"] + "-bad")
+        lp = root / "docs" / ".governance-log.jsonl"
+        with lp.open("a") as fh:
+            fh.write(_j.dumps(legacy) + "\n" + _j.dumps(broken) + "\n")
+        with _mock.patch.object(m, "_render_gov_stats") as render, _ctx.redirect_stdout(_io.StringIO()):
+            rc = m.cmd_gov(m.Env(vault), stats=True)
+        rows = render.call_args.args[0] if render.called else []
+        projected = [r for r in rows if r.get("gate") == "fix-check"]
+        check(f"留痕 {case}:舊列可讀、壞型別列略過", rc == 0 and len(projected) == 2, str(projected))
+        values = {r.get("token"): r.get("not_run_items") for r in projected}
+        check(f"留痕 {case}:mapper 保留新欄位而舊欄未知",
+              values.get(events[0]["token"]) == wanted and values.get(legacy["token"]) is None, str(values))
+
+
+
+def _physical_ref_fixture(root, text):
+    """真實 Git 來源；所有變動只在呼叫者的臨時目錄。"""
+    (root / "src").mkdir(exist_ok=True)
+    (root / "src" / "sample.py").write_bytes(text.encode("utf-8"))
+    commands = (("init", "-q"), ("add", "src/sample.py"),
+                ("-c", "user.name=Reference fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "-qm", "reference source"))
+    import os
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+    hooks = root / ".fixture-hooks"
+    hooks.mkdir()
+    git = ["git", "-c", "core.hooksPath=" + str(hooks), "-c", "commit.gpgSign=false", "-C", str(root)]
+    for args in commands:
+        subprocess.run([*git, *args], check=True, capture_output=True, env=env, timeout=8)
+    return subprocess.check_output([*git, "rev-parse", "HEAD"], text=True, env=env, timeout=8).strip()
+
+
+def t_refcheck_physical_unicode():
+    """[S1] 非來源換行的八種分隔符不得製造錯引文或不存在的第三行。"""
+    m = _load_lumos_module()
+    for sep in ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"):
+        with tempfile.TemporaryDirectory(prefix="gctl-ref-physical-") as d:
+            root = Path(d)
+            first, last = f"text = '{sep}'", "value = 1"
+            text = first + "\n" + last + "\n"
+            compile(text, "sample.py", "exec")
+            head = _physical_ref_fixture(root, text)
+            check(f"來源 {sep!r}:前置有效 Python 且僅兩個 LF", text.count("\n") == 2)
+            for pin in (None, head):
+                label = f"來源 {sep!r} {pin or 'worktree'}"
+                check(label + ":第二行引文正確", m._validate_repo_ref(root, "src/sample.py", "2", at_sha=pin) == ("ok", last))
+                check(label + ":第三行超界", m._validate_repo_ref(root, "src/sample.py", "3", at_sha=pin) == ("line_out_of_range", ""))
+                check(label + ":合法範圍保留首尾", m._validate_repo_ref(root, "src/sample.py", "1-2", at_sha=pin) == ("ok", first + "\n…\n" + last))
+                check(label + ":跨到第三行超界", m._validate_repo_ref(root, "src/sample.py", "1-3", at_sha=pin) == ("line_out_of_range", ""))
+
+
+def t_refcheck_physical_cli():
+    """[S2] 真實 CLI 的普通及釘版引用均拒絕 phantom 座標，合法引用保持綠。"""
+    import json as _j
+    with tempfile.TemporaryDirectory(prefix="gctl-ref-cli-") as d:
+        root = Path(d)
+        head = _physical_ref_fixture(root, "text = '\u2028'\nvalue = 1\n")
+        spec = root / "report.md"
+        for pin in ("", "@" + head):
+            for line, expected_rc, expected_status in (("2", 0, "ok"), ("3", 1, "line_out_of_range")):
+                spec.write_text(f"file: `src/sample.py{pin}:{line}`\n", encoding="utf-8")
+                result = run(root, "refcheck", str(spec), "--repo", str(root), "--json")
+                data = _j.loads(result.stdout)
+                check(f"CLI {pin or 'worktree'}:{line}:返回碼", result.returncode == expected_rc, result.stdout + result.stderr)
+                claims = data["claims"]
+                check(f"CLI {pin or 'worktree'}:{line}:狀態與統計", len(claims) == 1 and claims[0]["status"] == expected_status
+                      and data["out_of_range"] == expected_rc, str(data))
+                if line == "2":
+                    check(f"CLI {pin or 'worktree'}:合法引文", claims[0]["excerpt"] == "value = 1", str(claims))
+
+
+def t_refcheck_physical_dispositions():
+    """[S3] 真實表態路徑證據消費端跟共用引用入口一致。"""
+    m = _load_lumos_module()
+    with tempfile.TemporaryDirectory(prefix="gctl-ref-disp-") as d:
+        root = Path(d)
+        head = _physical_ref_fixture(root, "text = '\u2029'\nvalue = 1\n")
+        check("表態前置:合法第二行通過", m._dispositions_check_path_line(root, head, "src/sample.py:2") == (True, ""))
+        ok, reason = m._dispositions_check_path_line(root, head, "src/sample.py:3")
+        check("表態第三行:拒絕並說明超界", ok is False and "行號超出" in reason, reason)
+
+
+def t_refcheck_physical_legacy():
+    """[S4] 保留文字讀取層、空行、末尾、BOM、無行號與目錄的原本邊界。"""
+    m = _load_lumos_module()
+    cases = (("空檔", "", []), ("空行", "\n", [""]),
+             ("末尾空白行", "a = 1\n\n", ["a = 1", ""]),
+             ("中間空白行", "a = 1\n\nb = 2\n", ["a = 1", "", "b = 2"]),
+             ("沒有末尾換行", "a = 1", ["a = 1"]),
+             ("常見雙字元換行", "a = 1\r\nb = 2\r\n", ["a = 1", "b = 2"]),
+             ("原有單字元正規化", "a = 1\rb = 2\r", ["a = 1", "b = 2"]),
+             ("BOM", "\ufeffa = 1\nb = 2\n", ["a = 1", "b = 2"]))
+    for label, text, expected in cases:
+        with tempfile.TemporaryDirectory(prefix="gctl-ref-legacy-") as d:
+            root = Path(d)
+            head = _physical_ref_fixture(root, text)
+            for pin in (None, head):
+                lines = expected[:]
+                if label == "BOM" and pin:
+                    lines[0] = "\ufeff" + lines[0]  # 釘版讀法既有行為；不額外改解碼政策。
+                if label == "中間空白行":
+                    check(f"邊界 {label} {pin}:第二行確為空白", m._validate_repo_ref(root, "src/sample.py", "2", at_sha=pin) == ("ok", ""))
+                if lines:
+                    check(f"邊界 {label} {pin}:最後一行", m._validate_repo_ref(root, "src/sample.py", str(len(lines)), at_sha=pin) == ("ok", lines[-1]))
+                check(f"邊界 {label} {pin}:下一行超界", m._validate_repo_ref(root, "src/sample.py", str(len(lines) + 1), at_sha=pin) == ("line_out_of_range", ""))
+                check(f"邊界 {label} {pin}:反向範圍", m._validate_repo_ref(root, "src/sample.py", "2-1", at_sha=pin) == ("line_out_of_range", ""))
+                check(f"邊界 {label} {pin}:缺檔", m._validate_repo_ref(root, "src/missing.py", "1", at_sha=pin)[0] == "missing")
+                check(f"邊界 {label} {pin}:目錄不改語義", m._validate_repo_ref(root, "src", "999", at_sha=pin)
+                      == (("line_out_of_range", "") if pin else ("ok", "")))
+                check(f"邊界 {label} {pin}:無行號不改語義", m._validate_repo_ref(root, "src/sample.py", "", at_sha=pin) == ("ok", ""))
+
+
+def t_refcheck_physical_fixture_isolated():
+    """[S5] 臨時來源提交不受使用者 hooks、簽章與 Git 環境注入影響。"""
+    import os
+    import shlex
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory(prefix="gctl-ref-fixture-control-") as d:
+        parent = Path(d)
+        hooks = parent / "user-hooks"
+        hooks.mkdir()
+        marker = parent / "user-setting-ran"
+        hook = hooks / "pre-commit"
+        hook.write_text("#!/bin/sh\nprintf hook > " + shlex.quote(str(marker)) + "\n")
+        hook.chmod(0o755)
+        signer = parent / "signer"
+        signer.write_text("#!/bin/sh\nprintf signer > " + shlex.quote(str(marker)) + "\nexit 31\n")
+        signer.chmod(0o755)
+        config = parent / "user.gitconfig"
+        config.write_text(f"[core]\n hooksPath = {hooks}\n[commit]\n gpgSign = true\n[gpg]\n program = {signer}\n")
+        root = parent / "source"
+        root.mkdir()
+        poisoned = {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_NOSYSTEM": "1"}
+        with patch.dict(os.environ, poisoned):
+            try:
+                head = _physical_ref_fixture(root, "a = 1\nb = 2\n")
+            except subprocess.CalledProcessError as e:
+                check("來源 fixture:不應被使用者簽章或hook阻擋", False, str(e))
+                return
+            check("來源 fixture:確實完成來源提交", len(head) == 40 and (root / ".git").is_dir())
+            check("來源 fixture:使用者hook與簽章均未執行", not marker.exists())
+            check("來源 fixture:父程序的設定不改寫", os.environ["GIT_CONFIG_GLOBAL"] == str(config))
+        check("來源 fixture:只提交指定來源", subprocess.check_output(["git", "-C", str(root), "ls-tree", "--name-only", "-r", head], text=True, timeout=8).strip() == "src/sample.py")
+
+
+# ── Lumos 事件帳(Projects/Lumos事件帳_計劃):讀取端 ─────────────────────────
+
+def _events_write_chunk(root, session, name, lines):
+    d = Path(root) / "governance" / "runtime" / "events" / session
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text("".join(l + "\n" for l in lines), encoding="utf-8")
+    return d
+
+
+def _events_ev(ev, ts, agent=None, **kw):
+    import json as _j
+    d = {"v": 1, "ts": ts, "session": "S1", "agent": agent, "worktree": None, "ev": ev}
+    d.update(kw)
+    return _j.dumps(d, ensure_ascii=False)
+
+
+def t_events_reader_merges_chunks():
+    """S4:依檔名排序合併,壞行與版本不是 1 的行略過並分別計數;子代理只有 turn_end 不算錯。"""
+    import json as _j
+    m = _load_lumos_inproc()
+    root = _mk_repo_with_graph()
+    # 故意先建檔名較大的那塊:排序要看檔名,不是建立順序
+    _events_write_chunk(root, "S1", "1791200000002-bbbbbbbb.jsonl", [
+        _events_ev("tool", "2026-10-05T10:00:02+08:00", agent="A1", tool="Bash", ok=True),
+        _events_ev("turn_end", "2026-10-05T10:00:03+08:00", agent="A1", turn="t2", reason="answer"),
+        _j.dumps({"v": 2, "ev": "tool"}),
+    ])
+    _events_write_chunk(root, "S1", "1791200000001-aaaaaaaa.jsonl", [
+        _events_ev("turn_start", "2026-10-05T10:00:00+08:00", turn="t1", origin="unclassified"),
+        "{這行壞掉",
+        _events_ev("tool", "2026-10-05T10:00:01+08:00", tool="Edit", ok=False),
+    ])
+    r = m._events_read(root, "S1")
+    evs = [e["ev"] for e in r["events"]]
+    check("S4 依檔名排序合併(先 aaaa 塊再 bbbb 塊)", evs == ["turn_start", "tool", "tool", "turn_end"], str(evs))
+    check("S4 壞行略過並計數", r["bad"] == 1, str(r))
+    check("S4 版本不是 1 的行略過並分開計數", r["unknown_version"] == 1, str(r))
+    out = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", "S1", "--json"],
+                         cwd=root, capture_output=True, check=False, text=True)
+    check("S4 lumos events --session --json 回 0", out.returncode == 0, out.stderr[-400:])
+    j = _j.loads(out.stdout) if out.returncode == 0 else {}
+    check("S4 JSON 帶同樣的事件數與兩個計數",
+          len(j.get("events", [])) == 4 and j.get("bad") == 1 and j.get("unknown_version") == 1, out.stdout[-400:])
+    txt = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", "S1"],
+                         cwd=root, capture_output=True, check=False, text=True)
+    check("S4 文字輸出印出略過的兩種計數", txt.returncode == 0 and "壞行 1" in txt.stdout and "版本不認得 1" in txt.stdout,
+          txt.stdout[-400:])
+    check("S4 子代理只有 turn_end 照常列出(帶它的子代理編號)", "[A1] turn_end" in txt.stdout, txt.stdout[-400:])
+
+
+def t_events_reader_no_ledger():
+    """S5:沒有事件帳回 0 並三段式印原因;--session 給不存在的編號回 2。"""
+    root = _mk_repo_with_graph()
+    r = subprocess.run([sys.executable, GRAPHCTL, "events"], cwd=root, capture_output=True, check=False, text=True)
+    check("S5 沒有事件帳回 0", r.returncode == 0, r.stderr[-300:])
+    check("S5 印「沒有事件帳」", "沒有事件帳" in r.stdout, r.stdout)
+    check("S5 列出可能原因(mod 沒裝、不是 Claude 會談、沒有圖譜)",
+          all(k in r.stdout for k in ("lumos-ledger", "Claude", "圖譜")), r.stdout)
+    r2 = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", "不存在的編號"],
+                        cwd=root, capture_output=True, check=False, text=True)
+    check("S5 --session 給不存在的編號回 2", r2.returncode == 2, f"rc={r2.returncode} {r2.stdout}{r2.stderr}")
+
+
+def t_events_reader_from_worktree():
+    """S12:在 worktree 裡跑 lumos events,讀的是主 checkout 的事件帳。"""
+    import json as _j
+    root = _mk_repo_with_graph()
+    _events_write_chunk(root, "S9", "1791200000001-aaaaaaaa.jsonl", [
+        _events_ev("turn_end", "2026-10-05T10:00:00+08:00", turn="t1", reason="answer", session="S9"),
+    ])
+    wt = Path(tempfile.mkdtemp(prefix="gctl-events-wt-")) / "wt"
+    a = subprocess.run(["git", "-C", str(root), "worktree", "add", "-q", str(wt)], capture_output=True, check=False, text=True)
+    check("★前置★ worktree 建得起來", a.returncode == 0 and wt.is_dir(), a.stderr)
+    check("★前置★ worktree 自己沒有事件帳", not (wt / "governance" / "runtime" / "events").exists())
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--json"], cwd=wt, capture_output=True, check=False, text=True)
+    check("S12 worktree 裡跑回 0", r.returncode == 0, r.stderr[-300:])
+    sess = [s.get("session") for s in (_j.loads(r.stdout).get("sessions", []) if r.returncode == 0 else [])]
+    check("S12 列得出主 checkout 的會談", "S9" in sess, r.stdout[-300:])
+
+
+
+def t_events_prune_only_old_sessions():
+    """S11:只刪早於 N 天且 24 小時內沒動過的會談資料夾;不跟符號連結;N 不合法回 2 不刪。"""
+    import os as _os
+    import time as _t
+    root = _mk_repo_with_graph()
+    old = _events_write_chunk(root, "OLD", "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+    mid = _events_write_chunk(root, "MID", "1.jsonl", [_events_ev("turn_end", "2026-10-01T00:00:00+08:00")])
+    new = _events_write_chunk(root, "NEW", "1.jsonl", [_events_ev("turn_end", "2026-10-05T00:00:00+08:00")])
+    now = _t.time()
+    for d, age_days in ((old, 60), (mid, 3)):
+        for p in [d] + list(d.iterdir()):
+            _os.utime(p, (now - age_days * 86400, now - age_days * 86400))
+    outside = Path(tempfile.mkdtemp(prefix="gctl-events-outside-"))
+    (outside / "keep.txt").write_text("x", encoding="utf-8")
+    _os.utime(outside, (now - 90 * 86400, now - 90 * 86400))
+    link = new.parent / "LINK"
+    _os.symlink(outside, link)
+    _os.utime(link, (now - 90 * 86400, now - 90 * 86400), follow_symlinks=False)
+
+    for bad in ("0", "-1", "1.5", "abc"):
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", bad],
+                           cwd=root, capture_output=True, check=False, text=True)
+        check(f"S11 --days {bad} 回 2", r.returncode == 2, f"rc={r.returncode} {r.stdout}{r.stderr}")
+    check("S11 不合法的天數什麼都沒刪", old.is_dir() and mid.is_dir() and new.is_dir())
+
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "30"],
+                       cwd=root, capture_output=True, check=False, text=True)
+    check("S11 --days 30 回 0", r.returncode == 0, r.stderr[-300:])
+    check("S11 60 天前的會談被刪", not old.exists())
+    check("S11 3 天前的會談留著(不到 30 天)", mid.is_dir())
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "1"],
+                       cwd=root, capture_output=True, check=False, text=True)
+    check("S11 --days 1:3 天前的會談被刪", not mid.exists(), r.stdout)
+    check("S11 --days 1:24 小時內動過的會談一律不刪", new.is_dir(), r.stdout)
+    check("S11 不跟符號連結:連結指到的資料夾與內容都還在", (outside / "keep.txt").exists())
+    check("S11 印刪了幾個", "刪" in r.stdout, r.stdout)
+
+
+
+def t_enforcement_ledger_row():
+    """S8:enforcement 多一列 claude-event-ledger,只看事件帳資料夾時間,三值、不呼叫任何外部指令。"""
+    import os as _os
+    import time as _t
+    m = _load_lumos_inproc()
+    home = Path(tempfile.mkdtemp(prefix="gctl-enf-ledger-home-"))
+    fakebin = Path(tempfile.mkdtemp(prefix="gctl-enf-ledger-bin-"))
+    marker = fakebin / "called"
+    (fakebin / "claude").write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 0\n", encoding="utf-8")
+    (fakebin / "claude").chmod(0o755)
+    from unittest import mock
+    patcher = mock.patch.dict(_os.environ, {"PATH": str(fakebin) + _os.pathsep + _os.environ.get("PATH", "")})
+    patcher.start()
+
+    def row(root):
+        rs = [r for r in m.enforcement_status(root=root, home=home) if r["layer"] == "claude-event-ledger"]
+        return rs[0] if len(rs) == 1 else {"status": f"列數={len(rs)}"}
+    try:
+        root = _mk_repo_with_graph()
+        r0 = row(root)
+        check("S8 沒有事件帳資料夾 → unknown", r0["status"] == "unknown", str(r0))
+        check("S8 說明寫明只有 Claude Code 會寫", "Claude" in r0.get("detail", "") and "Codex" in r0.get("detail", ""), str(r0))
+        d = _events_write_chunk(root, "S1", "1.jsonl", [_events_ev("turn_end", "2026-09-01T00:00:00+08:00")])
+        now = _t.time()
+        for p in (d, d / "1.jsonl"):
+            _os.utime(p, (now - 10 * 86400, now - 10 * 86400))
+        r1 = row(root)
+        check("S8 資料夾在但 7 天內沒有 → stale", r1["status"] == "stale", str(r1))
+        _events_write_chunk(root, "S2", "1.jsonl", [_events_ev("turn_end", "2026-10-05T00:00:00+08:00")])
+        r2 = row(root)
+        check("S8 近 7 天有會談 → active", r2["status"] == "active", str(r2))
+        wt = Path(tempfile.mkdtemp(prefix="gctl-enf-ledger-wt-")) / "wt"
+        subprocess.run(["git", "-C", str(root), "worktree", "add", "-q", str(wt)], capture_output=True, check=False)
+        r3 = row(wt)
+        check("S8 在 worktree 裡查,讀主 checkout 的事件帳 → active", r3["status"] == "active", str(r3))
+        seen = {row(x)["status"] for x in (root, wt, _mk_repo_with_graph())}
+        check("S8 這一列不出現 inactive / degraded", not (seen & {"inactive", "degraded"}), str(seen))
+        check("S8 整個 enforcement 計算沒有呼叫 claude 指令", not marker.exists())
+    finally:
+        patcher.stop()
+
+
+
+def t_runner_isolates_claude_plugin():
+    """S10:測試執行器建拋棄式家目錄時,同時關掉外掛指令並清掉 CLAUDE_CONFIG_DIR,
+    使既有的 install / uninstall 測試不會碰到真的 claude 與使用者的設定。"""
+    import os as _os
+    check("S10 LUMOS_SKIP_CLAUDE_PLUGIN=1", _os.environ.get("LUMOS_SKIP_CLAUDE_PLUGIN") == "1",
+          str(_os.environ.get("LUMOS_SKIP_CLAUDE_PLUGIN")))
+    check("S10 CLAUDE_CONFIG_DIR 已清掉", "CLAUDE_CONFIG_DIR" not in _os.environ,
+          str(_os.environ.get("CLAUDE_CONFIG_DIR")))
+
+
+
+_FAKE_CLAUDE = r"""#!/usr/bin/env python3
+# 假的 claude:只認外掛相關子指令,狀態存在 FAKE_CLAUDE_STATE,每次呼叫記一行到 FAKE_CLAUDE_LOG。
+# 輸出格式照 2026-10-05 真 claude 2.1.289 的 `plugin marketplace list --json` / `plugin list --json` 實測。
+import json, os, sys
+st_p, log_p = os.environ["FAKE_CLAUDE_STATE"], os.environ["FAKE_CLAUDE_LOG"]
+a = sys.argv[1:]
+with open(log_p, "a") as f:
+    f.write(" ".join(a) + "\n")
+st = json.load(open(st_p)) if os.path.exists(st_p) else {"markets": [], "plugins": []}
+fail = os.environ.get("FAKE_CLAUDE_FAIL", "")
+raw = os.environ.get("FAKE_CLAUDE_RAW")          # 列表類指令改吐這串(壞 JSON 用)
+late = os.environ.get("FAKE_CLAUDE_APPLY_THEN_FAIL", "")
+delayed = os.environ.get("FAKE_CLAUDE_APPLY_DELAYED", "")
+def save():
+    json.dump(st, open(st_p, "w"))
+if a[:3] == ["plugin", "marketplace", "list"]:
+    print(raw if raw is not None else json.dumps(st["markets"])); sys.exit(0)
+if a[:2] == ["plugin", "list"]:
+    print(raw if raw is not None else json.dumps(st["plugins"])); sys.exit(0)
+sub = a[2] if a[1] == "marketplace" else a[1]
+if fail and fail == sub and os.environ.get("FAKE_CLAUDE_FAIL_ID", a[2] if len(a) > 2 else "") == (a[2] if len(a) > 2 else ""):
+    print("boom: " + sub, file=sys.stderr); sys.exit(1)
+if a[:2] == ["plugin", "install"] and os.environ.get("FAKE_CLAUDE_INSTALL_NOOP") == a[2]:
+    sys.exit(0)                                   # 回成功但其實沒裝上
+if a[:3] == ["plugin", "marketplace", "add"] and delayed == "add":
+    import subprocess
+    src = a[3]; name = json.load(open(os.path.join(src, ".claude-plugin", "marketplace.json")))["name"]
+    entry = json.dumps({"name": name, "source": "directory", "path": src})
+    subprocess.Popen([sys.executable, "-c", "import json,sys,time;time.sleep(1);p=sys.argv[1];"
+                      "st=json.load(open(p)) if __import__('os').path.exists(p) else {'markets':[],'plugins':[]};"
+                      "st['markets'].append(json.loads(sys.argv[2]));json.dump(st,open(p,'w'))", st_p, entry])
+    print("locked by another process", file=sys.stderr); sys.exit(1)
+if a[:3] == ["plugin", "marketplace", "add"]:
+    src = a[3]; name = json.load(open(os.path.join(src, ".claude-plugin", "marketplace.json")))["name"]
+    st["markets"].append({"name": name, "source": "directory", "path": src}); save()
+    if late == "add":
+        print("already exists", file=sys.stderr); sys.exit(1)
+    sys.exit(0)
+if a[:3] == ["plugin", "marketplace", "remove"]:
+    st["markets"] = [m for m in st["markets"] if m["name"] != a[3]]; save(); sys.exit(0)
+if a[:2] == ["plugin", "install"]:
+    st["plugins"].append({"id": a[2], "enabled": True, "scope": "user"}); save()
+    if late == "install":
+        print("already installed", file=sys.stderr); sys.exit(1)
+    sys.exit(0)
+if a[:2] == ["plugin", "uninstall"]:
+    scope = a[a.index("--scope") + 1] if "--scope" in a else "user"
+    hit = [p for p in st["plugins"] if p["id"] == a[2] and p.get("scope", "user") == scope]
+    if not hit and any(p["id"] == a[2] for p in st["plugins"]):
+        print(f"Plugin {a[2]} is installed in project scope, not {scope}.", file=sys.stderr); sys.exit(1)
+    st["plugins"] = [p for p in st["plugins"] if not (p["id"] == a[2] and p.get("scope", "user") == scope)]; save(); sys.exit(0)
+print("unknown " + " ".join(a), file=sys.stderr); sys.exit(2)
+"""
+
+
+def _fake_claude_env(state=None, with_claude=True):
+    """回 (env 增量, state 路徑, log 路徑, 來源 repo)。來源 repo 帶市集檔;state 給定就先寫進去。"""
+    import json as _j
+    import os
+    base = Path(tempfile.mkdtemp(prefix="gctl-fake-claude-"))
+    bin_d, src = base / "bin", base / "src"
+    bin_d.mkdir(); (src / ".claude-plugin").mkdir(parents=True)
+    (src / ".claude-plugin" / "marketplace.json").write_text(
+        _j.dumps({"name": "lumos-toolchain", "owner": {"name": "t"},
+                  "plugins": [{"name": "lumos-ledger", "source": "./mods/claude/lumos-ledger"},
+                              {"name": "lumos-context", "source": "./mods/claude/lumos-context"}]}), encoding="utf-8")
+    if with_claude:
+        (bin_d / "claude").write_text(_FAKE_CLAUDE, encoding="utf-8"); (bin_d / "claude").chmod(0o755)
+    st, log = base / "state.json", base / "calls.log"
+    log.write_text("", encoding="utf-8")
+    if state is not None:
+        st.write_text(_j.dumps(state), encoding="utf-8")
+    env = {"PATH": str(bin_d) + os.pathsep + os.environ.get("PATH", ""), "LUMOS_HOME": str(src),
+           "FAKE_CLAUDE_STATE": str(st), "FAKE_CLAUDE_LOG": str(log)}
+    return env, st, log, src
+
+
+def _with_env(env, fn, drop=("LUMOS_SKIP_CLAUDE_PLUGIN",)):
+    """跟本檔其他測試同一種換環境變數寫法(unittest.mock.patch.dict,離開時整份還原)。"""
+    import os
+    from unittest import mock
+    with mock.patch.dict(os.environ, env):
+        for k in drop:
+            os.environ.pop(k, None)
+        return fn()
+
+
+def t_install_registers_ledger_plugin():
+    """S6:以 _lumos_src() 為市集來源;不存在就加、本機路徑不同先移除再加、已列出不再裝;
+    非本機來源不動回 failed;失敗不改 install 回傳碼;沒 claude 回 absent、來源沒市集檔回 no-source。"""
+    import json as _j
+    import os
+    m = _load_lumos_inproc()
+    calls = lambda log: [l for l in log.read_text(encoding="utf-8").splitlines() if l]
+    # ① 什麼都沒有 → 加市集、裝外掛
+    env, st, log, src = _fake_claude_env()
+    r = _with_env(env, m._sync_claude_plugin)
+    c = calls(log)
+    check("S6① 回 ok", r == "ok", r)
+    check("S6① 以 _lumos_src() 為來源加市集(--scope user)",
+          any(l.startswith("plugin marketplace add " + str(src.resolve())) and "--scope user" in l for l in c), str(c))
+    check("S6① 安裝外掛(--scope user)", "plugin install lumos-ledger@lumos-toolchain --scope user" in c, str(c))
+    # ② 已經一樣 → 只查詢、不加不裝
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src) + "/"}],
+                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True},
+                                        {"id": "lumos-context@lumos-toolchain", "enabled": True}]}), encoding="utf-8")
+    r = _with_env(env, m._sync_claude_plugin)
+    c = calls(log)
+    check("S6② 已裝好 → ok 且不呼叫 add / install(路徑多一個結尾斜線也算一樣)",
+          r == "ok" and not any(" add " in f" {l} " or l.startswith("plugin install") for l in c), str(c))
+    # ③ 同名市集指向別的本機路徑 → 先移除再加
+    env, st, log, src = _fake_claude_env(state={"markets": [{"name": "lumos-toolchain", "source": "directory",
+                                                              "path": "/tmp/old-worktree"}], "plugins": []})
+    r = _with_env(env, m._sync_claude_plugin)
+    c = calls(log)
+    ia = next((i for i, l in enumerate(c) if l.startswith("plugin marketplace remove lumos-toolchain")), -1)
+    ib = next((i for i, l in enumerate(c) if l.startswith("plugin marketplace add")), -1)
+    check("S6③ 來源不同 → 先 remove(--scope user)再 add", 0 <= ia < ib and "--scope user" in c[ia], str(c))
+    # ④ 同名市集不是本機路徑 → 不動,回 failed
+    env, st, log, src = _fake_claude_env(state={"markets": [{"name": "lumos-toolchain", "source": "github",
+                                                              "repo": "someone/lumos"}], "plugins": []})
+    r = _with_env(env, m._sync_claude_plugin)
+    c = calls(log)
+    check("S6④ 非本機來源 → 不 remove 不 add、回 failed",
+          r == "failed" and not any("remove" in l or " add " in f" {l} " for l in c), f"{r} {c}")
+    # ⑤ 沒有 claude → absent;來源沒市集檔 → no-source
+    env, st, log, src = _fake_claude_env(with_claude=False)
+    env["PATH"] = str(Path(env["PATH"].split(os.pathsep)[0]))
+    check("S6⑤ 找不到 claude → absent", _with_env(env, m._sync_claude_plugin) == "absent")
+    env, st, log, src = _fake_claude_env()
+    (src / ".claude-plugin" / "marketplace.json").unlink()
+    check("S6⑤ 來源沒有市集檔 → no-source", _with_env(env, m._sync_claude_plugin) == "no-source")
+    # ⑥ 整條 install:安裝外掛失敗 → 回傳碼不變、stderr 一行、真的有試過安裝
+    env, st, log, src = _fake_claude_env()
+    full = dict(os.environ); full.pop("LUMOS_SKIP_CLAUDE_PLUGIN", None); full.update(env); full["FAKE_CLAUDE_FAIL"] = "install"
+    ok_env = dict(full); ok_env.pop("FAKE_CLAUDE_FAIL")
+    base_rc = subprocess.run([sys.executable, GRAPHCTL, "install", "--force"], env=dict(os.environ), capture_output=True, check=False, text=True).returncode
+    r = subprocess.run([sys.executable, GRAPHCTL, "install", "--force"], env=full, capture_output=True, check=False, text=True)
+    c = calls(log)
+    check("S6⑥ install 經過 _sync_global_hooks 走到外掛段(有呼叫 plugin install)",
+          any(l.startswith("plugin install") for l in c), str(c))
+    check("S6⑥ 外掛失敗不改 install 回傳碼", r.returncode == base_rc, f"rc={r.returncode} base={base_rc} {r.stderr[-300:]}")
+    check("S6⑥ 失敗印到標準錯誤", "lumos-ledger" in r.stderr, r.stderr[-300:])
+    # ⑦ 開關打開 → 整段略過、一個 claude 都不叫
+    env, st, log, src = _fake_claude_env()
+    _with_env(dict(env, LUMOS_SKIP_CLAUDE_PLUGIN="1"), m._sync_claude_plugin, drop=())
+    check("S6⑦ LUMOS_SKIP_CLAUDE_PLUGIN=1 → 不呼叫 claude", calls(log) == [], str(calls(log)))
+
+
+def t_teardown_removes_ledger_plugin():
+    """S7:實際跑 `lumos uninstall`(子行程):外掛有列出就移除、市集是我們的就 --scope user 移除(外掛沒列也要);
+    兩者都沒有不印失敗;失敗只列還沒做成那幾步的手動指令(外掛移除失敗時保留市集);LUMOS_PROBE 時整個被擋、不叫 claude。"""
+    import os
+    def run(env, extra=None):
+        full = dict(os.environ); full.pop("LUMOS_SKIP_CLAUDE_PLUGIN", None); full.update(env); full.update(extra or {})
+        return subprocess.run([sys.executable, GRAPHCTL, "uninstall"], env=full, capture_output=True, check=False, text=True)
+    calls = lambda log: [l for l in log.read_text(encoding="utf-8").splitlines() if l]
+    def ours(src, plugin=True):
+        return {"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src)}],
+                "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True}] if plugin else []}
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps(ours(src)), encoding="utf-8")
+    r = run(env); c = calls(log)
+    check("S7① 有外掛 → plugin uninstall(只動使用者範圍)", "plugin uninstall lumos-ledger@lumos-toolchain --scope user" in c, str(c))
+    check("S7① 市集是我們的 → marketplace remove --scope user",
+          "plugin marketplace remove lumos-toolchain --scope user" in c, str(c))
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps(ours(src, plugin=False)), encoding="utf-8")
+    r = run(env); c = calls(log)
+    check("S7② 外掛已被手動移除、市集還在 → 仍移除市集",
+          "plugin marketplace remove lumos-toolchain --scope user" in c and not any(l.startswith("plugin uninstall") for l in c), str(c))
+    env, st, log, src = _fake_claude_env()
+    r = run(env)
+    check("S7③ 兩者都沒有 → 不印失敗", "失敗" not in r.stdout + r.stderr, r.stdout + r.stderr)
+    env, st, log, src = _fake_claude_env(with_claude=False)
+    env["PATH"] = str(Path(env["PATH"].split(os.pathsep)[0]))
+    r = run(env)
+    check("S7③ 找不到 claude → 不印失敗", "失敗" not in r.stdout + r.stderr, r.stdout + r.stderr)
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps(ours(src)), encoding="utf-8")
+    r = run(env, {"FAKE_CLAUDE_FAIL": "uninstall"})
+    check("S7④ 外掛那步失敗:市集保留,手動指令列那支外掛與市集",
+          "claude plugin uninstall lumos-ledger@lumos-toolchain" in r.stderr
+          and "claude plugin marketplace remove" in r.stderr
+          and "plugin marketplace remove lumos-toolchain --scope user" not in calls(log), r.stderr[-400:])
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps(ours(src)), encoding="utf-8")
+    r = run(env, {"FAKE_CLAUDE_RAW": "null"})
+    check("S7④ 兩步都失敗時附兩個手動指令",
+          "claude plugin uninstall lumos-ledger@lumos-toolchain" in r.stderr
+          and "claude plugin marketplace remove lumos-toolchain --scope user" in r.stderr, r.stderr[-400:])
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps(ours(src)), encoding="utf-8")
+    r = run(env, {"LUMOS_PROBE": "1"})
+    check("S7⑤ LUMOS_PROBE → 整個被擋(rc 2)且不呼叫 claude", r.returncode == 2 and calls(log) == [], f"rc={r.returncode} {calls(log)}")
+
+
+
+def t_ledger_plugin_bad_json_and_races():
+    """代碼審 r1(正確性 F1、邊界 F1、併發 F2 F3、合約 F5、資安 F4):claude 吐壞 JSON 不得讓 install / uninstall 崩;
+    另一支先做完導致 add/install 回錯時以最終狀態為準;移除舊市集後加新的失敗要教怎麼救;
+    專案範圍裝過不算使用者層裝好;LUMOS_HOME 是相對路徑時傳給 claude 的是絕對路徑。"""
+    import json as _j
+    import os
+    m = _load_lumos_inproc()
+    calls = lambda log: [l for l in log.read_text(encoding="utf-8").splitlines() if l]
+    for raw in ("null", "{}", "42", "", "[1, 2]"):
+        env, st, log, src = _fake_claude_env()
+        env["FAKE_CLAUDE_RAW"] = raw
+        try:
+            r = _with_env(env, m._sync_claude_plugin)
+        except Exception as e:  # noqa: BLE001 —— 測的就是「不得丟例外」
+            r = f"EXC {type(e).__name__}"
+        check(f"壞 JSON {raw!r}:安裝步驟回 failed、不丟例外", r == "failed", r)
+        try:
+            r2 = _with_env(env, m._teardown_claude_plugin)
+        except Exception as e:  # noqa: BLE001
+            r2 = f"EXC {type(e).__name__}"
+        check(f"壞 JSON {raw!r}:移除步驟回 failed、不丟例外", r2 == "failed", r2)
+    # 整條 uninstall:claude 吐 null 也要把其餘東西拆完
+    env, st, log, src = _fake_claude_env()
+    home = Path(tempfile.mkdtemp(prefix="gctl-ledger-home-"))
+    (home / ".local" / "bin").mkdir(parents=True)
+    os.symlink(GRAPHCTL, home / ".local" / "bin" / "lumos")
+    full = dict(os.environ); full.pop("LUMOS_SKIP_CLAUDE_PLUGIN", None); full.update(env)
+    full.update(FAKE_CLAUDE_RAW="null", HOME=str(home))
+    r = subprocess.run([sys.executable, GRAPHCTL, "uninstall"], env=full, capture_output=True, text=True, check=False)
+    check("uninstall 遇壞 JSON 不吐 Traceback", "Traceback" not in r.stderr, r.stderr[-300:])
+    check("uninstall 遇壞 JSON 仍拆掉全域指令連結", not (home / ".local" / "bin" / "lumos").exists(), r.stdout[-300:])
+    # 另一支 install 先加了市集:add 回錯但市集已在 → 以最終狀態為準
+    env, st, log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_APPLY_THEN_FAIL"] = "add"
+    check("同時安裝:add 回錯但市集已在 → ok", _with_env(env, m._sync_claude_plugin) == "ok", calls(log))
+    env, st, log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_APPLY_THEN_FAIL"] = "install"
+    check("同時安裝:install 回錯但外掛已在 → ok", _with_env(env, m._sync_claude_plugin) == "ok", calls(log))
+    # 先移除舊市集、再加新的失敗 → 教怎麼救
+    import contextlib
+    import io
+    env, st, log, src = _fake_claude_env(state={"markets": [{"name": "lumos-toolchain", "source": "directory",
+                                                              "path": "/tmp/old-wt"}], "plugins": []})
+    env["FAKE_CLAUDE_FAIL"] = "add"
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        r = _with_env(env, m._sync_claude_plugin)
+    check("舊市集已移除、新的沒加上 → 訊息教重跑 lumos install --force",
+          r == "failed" and "lumos install --force" in err.getvalue(), err.getvalue())
+    # 專案範圍裝過 → 仍要裝使用者層
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src)}],
+                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True, "scope": "project"}]}),
+                  encoding="utf-8")
+    _with_env(env, m._sync_claude_plugin)
+    check("只有專案範圍那份 → 仍裝使用者層", "plugin install lumos-ledger@lumos-toolchain --scope user" in calls(log), calls(log))
+    # LUMOS_HOME 是相對路徑 → 傳給 claude 的是絕對路徑
+    env, st, log, src = _fake_claude_env()
+    rel = os.path.relpath(src, Path.cwd())
+    env["LUMOS_HOME"] = rel
+    _with_env(env, m._sync_claude_plugin)
+    adds = [l for l in calls(log) if l.startswith("plugin marketplace add ")]
+    check("相對路徑的 LUMOS_HOME → add 收到的是絕對路徑",
+          len(adds) == 1 and adds[0].split()[3].startswith("/"), str(adds))
+
+
+def t_ledger_plugin_messages_and_bootstrap():
+    """代碼審 r1(合約 F1 F2、架構 F4):bootstrap --lumos-home 要傳進安裝子行程;teardown 確認清單列外掛;
+    開關略過時移除端也印一行;uninstall 成功要說移掉了什麼。"""
+    import os
+    import shutil
+    m = _load_lumos_inproc()
+    # bootstrap:來源是自訂路徑的完整 clone(含 scripts/lumos 與市集檔)
+    env, st, log, src = _fake_claude_env()
+    (src / "scripts").mkdir()
+    shutil.copy2(GRAPHCTL, src / "scripts" / "lumos")
+    home = Path(tempfile.mkdtemp(prefix="gctl-bs-home-"))
+    cwd = Path(tempfile.mkdtemp(prefix="gctl-bs-cwd-"))
+    full = dict(os.environ); full.pop("LUMOS_SKIP_CLAUDE_PLUGIN", None); full.update(env)
+    full.pop("LUMOS_HOME", None); full["HOME"] = str(home)
+    r = subprocess.run([sys.executable, GRAPHCTL, "bootstrap", "--lumos-home", str(src)], cwd=cwd, env=full,
+                       capture_output=True, text=True, check=False)
+    adds = [l for l in (log.read_text(encoding="utf-8").splitlines() if log.exists() else []) if "marketplace add" in l]
+    check("bootstrap --lumos-home:外掛以那個來源加市集", any(str(src) in l for l in adds), f"{adds} {r.stdout[-300:]}")
+    # teardown 確認清單
+    src_txt = Path(GRAPHCTL).read_text(encoding="utf-8")
+    i = src_txt.find("def cmd_teardown")
+    check("teardown 確認清單提到 Claude 外掛 lumos-ledger", "lumos-ledger" in src_txt[i:i + 4000], "")
+    # 開關打開時移除端也印一行;uninstall 成功說移掉了什麼
+    import contextlib
+    import io
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        _with_env({"LUMOS_SKIP_CLAUDE_PLUGIN": "1"}, m._teardown_claude_plugin, drop=())
+    check("開關打開:移除端印一行說略過", "略過" in out.getvalue(), out.getvalue())
+    env, st, log, src = _fake_claude_env()
+    st.write_text(__import__("json").dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src)}],
+                                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True, "scope": "user"}]}),
+                  encoding="utf-8")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        _with_env(env, m._teardown_claude_plugin)
+    check("移除成功:印出移掉了外掛與市集", "lumos-ledger" in out.getvalue() and "移除" in out.getvalue(), out.getvalue())
+
+
+def t_events_session_name_and_repo_validation():
+    """代碼審 r1(邊界 F2、資安 F2、合約 F4、架構 F1):--session 只收單層名稱;空字串、跳出、絕對路徑、
+    符號連結一律回 2 不讀;--repo 不是目錄回 2。"""
+    import os
+    root = _mk_repo_with_graph()
+    outside = Path(tempfile.mkdtemp(prefix="gctl-events-outside-"))
+    (outside / "a.jsonl").write_text(_events_ev("turn_end", "2026-10-05T00:00:00+08:00") + "\n", encoding="utf-8")
+    base = root / "governance" / "runtime" / "events"
+    base.mkdir(parents=True)
+    os.symlink(outside, base / "LNK")
+    for bad in ("", "../../../x", str(outside), "a/b", "..", ".", "LNK"):
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", bad, "--json"], cwd=root,
+                           capture_output=True, text=True, check=False)
+        check(f"--session {bad!r} 回 2", r.returncode == 2, f"rc={r.returncode} {r.stdout[-200:]}")
+        check(f"--session {bad!r} 沒讀到外面的事件", "turn_end" not in r.stdout, r.stdout[-200:])
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--repo", str(root / "沒有這個資料夾")],
+                       capture_output=True, text=True, check=False)
+    check("--repo 不是目錄回 2(不誤報成沒有事件帳)", r.returncode == 2 and "沒有事件帳" not in r.stdout,
+          f"rc={r.returncode} {r.stdout}{r.stderr}")
+
+
+def t_events_reader_edge_lines():
+    """代碼審 r1(正確性 F2 F3、邊界 F3、資安 F1):JSON 字串裡的 U+2028 不算斷行;v 只認整數 1;
+    tool 缺 ok 不當失敗(逐筆與列表一致);印出前剝掉控制字元。"""
+    import json as _j
+    root = _mk_repo_with_graph()
+    _events_write_chunk(root, "S1", "1.jsonl", [
+        _events_ev("tool", "2026-10-05T10:00:00+08:00", tool="Bash", ok=False, cmd="echo a\u2028b\u0085c"),
+        _j.dumps({"v": True, "ev": "tool", "tool": "B"}),
+        _j.dumps({"v": 1.0, "ev": "tool", "tool": "C"}),
+        _j.dumps({"v": "1", "ev": "tool", "tool": "D"}),
+        _events_ev("tool", "2026-10-05T10:00:01+08:00", tool="NoOk"),
+        _events_ev("tool", "2026-10-05T10:00:02+08:00", tool="\x1b]0;pwned\x07Evil", ok=True),
+    ])
+    m = _load_lumos_inproc()
+    r = m._events_read(root, "S1")
+    check("U+2028/U+0085 在 JSON 字串裡不算斷行(那筆失敗事件留著、不算壞行)",
+          r["bad"] == 0 and any(e.get("tool") == "Bash" for e in r["events"]), str(r)[:300])
+    check("v 是 true / 1.0 / \"1\" 都算版本不認得", r["unknown_version"] == 3, str(r["unknown_version"]))
+    txt = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", "S1"], cwd=root,
+                         capture_output=True, text=True, check=False).stdout
+    line = next((l for l in txt.splitlines() if "NoOk" in l), "")
+    check("tool 缺 ok:逐筆不標失敗", "✗" not in line, line)
+    lst = _j.loads(subprocess.run([sys.executable, GRAPHCTL, "events", "--json"], cwd=root,
+                                  capture_output=True, text=True, check=False).stdout)
+    check("列表的失敗數只算 ok 是 false 的(1 筆)", lst["sessions"][0]["failed"] == 1, str(lst))
+    check("文字輸出剝掉控制字元(沒有 ESC / BEL)", "\x1b" not in txt and "\x07" not in txt, repr(txt[-200:]))
+
+
+def t_events_prune_edge_cases():
+    """代碼審 r1(正確性 F4、合約 F7、併發 F1、架構 F3、資安 F3):天數超大或超過上限回 2 不噴 Traceback;
+    刪某個會談失敗時跳過它繼續處理其他的;事件帳路徑的上層是符號連結時整個不刪。"""
+    import os
+    import time as _t
+    root = _mk_repo_with_graph()
+    for bad in ("9" * 400, "36501"):
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", bad], cwd=root,
+                           capture_output=True, text=True, check=False)
+        check(f"--days {bad[:8]}…(長 {len(bad)})回 2 不噴 Traceback", r.returncode == 2 and "Traceback" not in r.stderr,
+              f"rc={r.returncode} {r.stderr[-200:]}")
+    now = _t.time()
+    a = _events_write_chunk(root, "A", "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+    b = _events_write_chunk(root, "B", "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+    locked = a / "locked"
+    locked.mkdir()
+    (locked / "x").write_text("x", encoding="utf-8")
+    for p in (a, b, a / "1.jsonl", b / "1.jsonl", locked):
+        os.utime(p, (now - 90 * 86400, now - 90 * 86400))
+    locked.chmod(0o500)
+    try:
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "30"], cwd=root,
+                           capture_output=True, text=True, check=False)
+    finally:
+        locked.chmod(0o700)
+    check("刪 A 失敗不中斷:B 照樣被刪", not b.exists(), r.stdout + r.stderr[-200:])
+    check("刪 A 失敗不噴 Traceback、有說哪個沒刪掉", "Traceback" not in r.stderr and "A" in r.stdout + r.stderr,
+          r.stdout + r.stderr[-200:])
+    # 上層是符號連結:governance/runtime 指到 repo 外
+    root2 = _mk_repo_with_graph()
+    elsewhere = Path(tempfile.mkdtemp(prefix="gctl-events-elsewhere-"))
+    old = elsewhere / "events" / "OLD"
+    old.mkdir(parents=True)
+    (old / "1.jsonl").write_text("{}\n", encoding="utf-8")
+    os.utime(old, (now - 90 * 86400, now - 90 * 86400))
+    os.utime(old / "1.jsonl", (now - 90 * 86400, now - 90 * 86400))
+    (root2 / "governance").mkdir(exist_ok=True)
+    os.symlink(elsewhere, root2 / "governance" / "runtime")
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "1"], cwd=root2,
+                       capture_output=True, text=True, check=False)
+    check("事件帳路徑上層是符號連結 → 不刪 repo 外的東西", old.exists(), r.stdout + r.stderr[-200:])
+
+
+
+def t_events_reader_hostile_lines():
+    """代碼審 r2(正確性 F1、邊界 F1 F2 F3 F5 F6、資安 F1 F4、架構 F1):極深巢狀、孤立代理字元、ok 不是布林、
+    雙向覆寫與零寬字元、塊檔是連結、--json 的 8 位元控制字元——讀取端一律不崩、不跟連結、印出與 JSON 都安全。"""
+    import json as _j
+    import os
+    root = _mk_repo_with_graph()
+    d = _events_write_chunk(root, "S1", "1.jsonl", [
+        _events_ev("tool", "2026-10-05T10:00:00+08:00", tool="Good", ok=True),
+        "[" * 200000 + "]" * 200000,
+        '{"v":1,"ts":"\\ud800","ev":"tool","tool":"\\ud800x","ok":true}',
+        _j.dumps({"v": 1, "ts": "t", "ev": "tool", "tool": "Lst", "ok": [1]}),
+        _j.dumps({"v": 1, "ts": "t", "ev": "tool", "tool": "\u202eevil\u200b\u2066\u2028x", "ok": True}),
+        _j.dumps({"v": 1, "ts": "t", "ev": "tool", "tool": "c1\u009b31m", "ok": True}),
+    ])
+    _events_write_chunk(root, "S2", "1.jsonl", [_events_ev("turn_end", "2026-10-05T10:00:00+08:00")])
+    outside = Path(tempfile.mkdtemp(prefix="gctl-events-out-")) / "o.jsonl"
+    outside.write_text(_j.dumps({"v": 1, "ts": "OUTSIDE", "ev": "turn_end"}) + "\n", encoding="utf-8")
+    os.symlink(outside, d / "2.jsonl")
+    runs = {k: subprocess.run([sys.executable, GRAPHCTL, "events"] + a, cwd=root, capture_output=True, check=False)
+            for k, a in (("one", ["--session", "S1"]), ("one_json", ["--session", "S1", "--json"]),
+                         ("list", []), ("list_json", ["--json"]))}
+    for k, r in runs.items():
+        check(f"{k}:不噴 Traceback、回 0", r.returncode == 0 and b"Traceback" not in r.stderr, r.stderr[-300:])
+    one = runs["one"].stdout.decode("utf-8", "replace")
+    check("極深巢狀那行算壞行(其他事件照讀)", "Good" in one and "壞行 1" in one, one[:300])
+    check("ok 是列表:印 ?、不崩", any("Lst" in l and l.rstrip().endswith("?") for l in one.splitlines()), one[-400:])
+    for ch, name in (("\u202e", "雙向覆寫"), ("\u200b", "零寬"), ("\u2066", "雙向隔離"), ("\u2028", "行分隔"), ("\u009b", "8 位元 CSI")):
+        check(f"文字輸出不含{name}字元", ch not in one, repr(one[-200:]))
+    check("塊檔是符號連結:不跟、不讀到外面", "OUTSIDE" not in one, one[-200:])
+    for k in ("one_json", "list_json"):
+        raw = runs[k].stdout
+        check(f"{k}:JSON 輸出全是 ASCII(控制與特殊字元一律跳脫)", all(b < 128 for b in raw), repr(raw[:120]))
+    lst = runs["list"].stdout.decode("utf-8", "replace")
+    check("列表照樣列出另一個正常的會談 S2", "S2" in lst, lst[-300:])
+
+
+def t_events_prune_hardening():
+    """代碼審 r2(正確性 F2、邊界 F4、合約 F1、資安 F2、併發 F1、架構 F2):上標/全形/帶號天數回 2 不崩;
+    .git 檔被改成指到別的 repo 時拒刪;擋下訊息印到標準錯誤;刪不乾淨時說清楚已刪了一部分。"""
+    import os
+    import time as _t
+    root = _mk_repo_with_graph()
+    for bad in ("²", "①", "１２", "+5", "05", "-0"):
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", bad], cwd=root,
+                           capture_output=True, text=True, check=False)
+        check(f"--days {bad!r} 回 2 不噴 Traceback", r.returncode == 2 and "Traceback" not in r.stderr,
+              f"rc={r.returncode} {r.stderr[-200:]}")
+        check(f"--days {bad!r} 的擋下訊息印在標準錯誤", "擋下" in r.stderr and "擋下" not in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--session", ".."], cwd=root,
+                       capture_output=True, text=True, check=False)
+    check("--session 擋下訊息印在標準錯誤", r.returncode == 2 and "擋下" in r.stderr, r.stdout + r.stderr)
+    # .git 檔被竄改:看起來像 worktree,實際指到另一個 repo
+    victim = _mk_repo_with_graph()
+    now = _t.time()
+    v_old = _events_write_chunk(victim, "OLD", "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+    for p in (v_old, v_old / "1.jsonl"):
+        os.utime(p, (now - 90 * 86400, now - 90 * 86400))
+    fake_wt = Path(tempfile.mkdtemp(prefix="gctl-fake-wt-"))
+    (victim / ".git" / "worktrees" / "x").mkdir(parents=True)
+    (victim / ".git" / "worktrees" / "x" / "commondir").write_text("../..\n", encoding="utf-8")
+    (victim / ".git" / "worktrees" / "x" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (victim / ".git" / "worktrees" / "x" / "gitdir").write_text(str(Path(tempfile.mkdtemp()) / ".git") + "\n", encoding="utf-8")
+    (fake_wt / ".git").write_text(f"gitdir: {victim / '.git' / 'worktrees' / 'x'}\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "1"], cwd=fake_wt,
+                       capture_output=True, text=True, check=False)
+    check("竄改過的 .git 指到別的 repo → 不刪那個 repo 的事件帳", v_old.exists(), r.stdout + r.stderr[-300:])
+    # 刪不乾淨要說清楚
+    a = _events_write_chunk(root, "A", "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+    locked = a / "locked"
+    locked.mkdir()
+    (locked / "x").write_text("x", encoding="utf-8")
+    for p in (a, a / "1.jsonl", locked):
+        os.utime(p, (now - 90 * 86400, now - 90 * 86400))
+    locked.chmod(0o500)
+    try:
+        r = subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "30"], cwd=root,
+                           capture_output=True, text=True, check=False)
+    finally:
+        locked.chmod(0o700)
+    check("刪不乾淨時明講只刪了一部分", "部分" in r.stdout + r.stderr and "A" in r.stdout + r.stderr, r.stdout + r.stderr)
+
+
+def t_enforcement_ledger_row_git_hang():
+    """代碼審 r2(併發 F2、合約 F3、正確性 F5):解主 checkout 的 git 卡住時,enforcement 整份要在幾秒內回來,
+    不能拖過開場 hook 的預算。"""
+    import os
+    import time as _t
+    from unittest import mock
+    m = _load_lumos_inproc()
+    root = _mk_repo_with_graph()
+    real_git = __import__("shutil").which("git")
+    fakebin = Path(tempfile.mkdtemp(prefix="gctl-slow-git-"))
+    (fakebin / "git").write_text(
+        "#!/bin/sh\ncase \"$*\" in *git-common-dir*) sleep 15;; esac\nexec " + real_git + " \"$@\"\n", encoding="utf-8")
+    (fakebin / "git").chmod(0o755)
+    with mock.patch.dict(os.environ, {"PATH": str(fakebin) + os.pathsep + os.environ.get("PATH", "")}):
+        t0 = _t.time()
+        rows = m.enforcement_status(root=root, home=Path(tempfile.mkdtemp()))
+        took = _t.time() - t0
+    row = [r for r in rows if r["layer"] == "claude-event-ledger"]
+    check("git 卡住時 enforcement 在 6 秒內回來", took < 6, f"{took:.1f}s")
+    check("那一列照樣有值(退回原根判斷)", len(row) == 1 and row[0]["status"] in ("unknown", "stale", "active"), str(row))
+
+
+def t_ledger_plugin_teardown_scope_and_messages():
+    """代碼審 r2(邊界 F7、合約 F2、正確性 F3 F4、併發 F3、資安 F3):移除只動使用者範圍那份、外掛移除失敗也照樣清市集;
+    teardown 的 --source 要傳到;救援訊息照實說是哪一步失敗;同時安裝時稍等再查;來源不是預設位置時印出來。"""
+    import contextlib
+    import io
+    import json as _j
+    import os
+    m = _load_lumos_inproc()
+    calls = lambda log: [l for l in log.read_text(encoding="utf-8").splitlines() if l]
+    def run(env, fn, **kw):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            r = _with_env(env, lambda: fn(**kw))
+        return r, out.getvalue(), err.getvalue()
+    # 只有專案範圍那份:不叫 uninstall、不印失敗,市集照清
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True, "scope": "project"}]}),
+                  encoding="utf-8")
+    r, out, err = run(env, m._teardown_claude_plugin)
+    c = calls(log)
+    check("只有專案範圍那份:不呼叫 plugin uninstall", not any(l.startswith("plugin uninstall") for l in c), str(c))
+    check("只有專案範圍那份:市集照樣移除、不印失敗",
+          "plugin marketplace remove lumos-toolchain --scope user" in c and "失敗" not in err, f"{c} {err}")
+    # 外掛移除失敗:保留市集(移掉會讓那支外掛變成找不到來源的孤兒),手動指令列那支加市集
+    env, st, log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_FAIL"] = "uninstall"
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True, "scope": "user"}]}),
+                  encoding="utf-8")
+    r, out, err = run(env, m._teardown_claude_plugin)
+    check("外掛移除失敗:保留市集", "plugin marketplace remove lumos-toolchain --scope user" not in calls(log), str(calls(log)))
+    check("外掛移除失敗:手動指令列那支外掛加市集",
+          "claude plugin uninstall lumos-ledger@lumos-toolchain" in err and "claude plugin marketplace remove" in err, err[-400:])
+    # uninstall 帶 source:不設 LUMOS_HOME 也找得到是我們的市集
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                            "plugins": []}), encoding="utf-8")
+    env2 = dict(env); env2.pop("LUMOS_HOME")
+    def call_uninstall():
+        os.environ.pop("LUMOS_HOME", None)
+        return m._teardown_claude_plugin(source=str(src))
+    _with_env(env2, call_uninstall)
+    check("帶 source:沒有 LUMOS_HOME 也移除得到我們的市集", "plugin marketplace remove lumos-toolchain --scope user" in calls(log),
+          str(calls(log)))
+    import inspect
+    check("cmd_uninstall 收 source 並交給外掛移除", "source" in inspect.signature(m.cmd_uninstall).parameters, "")
+    src_txt = Path(GRAPHCTL).read_text(encoding="utf-8")
+    i = src_txt.find("def cmd_teardown")
+    check("cmd_teardown 把 source 傳給 cmd_uninstall", "cmd_uninstall(source=source)" in src_txt[i:i + 6000], "")
+    # 救援訊息照實:新市集已加上、外掛沒裝上
+    env, st, log, src = _fake_claude_env(state={"markets": [{"name": "lumos-toolchain", "source": "directory",
+                                                              "path": "/tmp/old-wt"}], "plugins": []})
+    env["FAKE_CLAUDE_FAIL"] = "install"
+    r, out, err = run(env, m._sync_claude_plugin)
+    check("新市集已加上、外掛沒裝上:訊息不說新的沒加上", r == "failed" and "新的沒加上" not in err and "lumos install --force" in err, err)
+    # 同時安裝:另一支一秒後才完成
+    env, st, log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_APPLY_DELAYED"] = "add"
+    r, out, err = run(env, m._sync_claude_plugin)
+    check("另一支稍後才完成:稍等再查後算成功", r == "ok", f"{r} {err}")
+    # 來源不是預設位置:印出來
+    env, st, log, src = _fake_claude_env()
+    r, out, err = run(env, m._sync_claude_plugin)
+    check("來源不是 ~/harness/lumos-toolchain:印出登記的來源路徑", str(src.resolve()) in out + err, out + err)
+
+
+def t_events_r3_hostile_output():
+    """代碼審 r3(正確性 F1、邊界 F1 F2 F3):讀得進來卻印不出的深巢狀、超長欄位切掉 ✓/✗、超大檔——
+    讀進來時就把關(太深、太長的行算壞行,太大的塊檔略過並計數),每個欄位各自清理截斷,狀態標記一定印得出來。"""
+    import json as _j
+    m = _load_lumos_inproc()
+    root = _mk_repo_with_graph()
+    deep = lambda n: "[" * n + "]" * n
+    _events_write_chunk(root, "S1", "1.jsonl", [
+        _events_ev("tool", "2026-10-05T10:00:00+08:00", tool="Good", ok=True),
+        '{"v":1,"ev":"turn_end","ts":' + deep(80000) + '}',
+        '{"v":1,"ev":"tool","tool":' + deep(80000) + ',"ok":false}',
+        '{"v":1,"ev":"tool","x":' + deep(116190) + '}',
+        '{"v":1,"ev":"tool","tool":"t","ok":true,"x":' + deep(100) + '}',
+        _j.dumps({"v": 1, "ts": "t", "ev": "tool", "tool": "A" * 3000, "ok": False}),
+    ])
+    runs = {k: subprocess.run([sys.executable, GRAPHCTL, "events"] + a, cwd=root, capture_output=True, check=False)
+            for k, a in (("one", ["--session", "S1"]), ("one_json", ["--session", "S1", "--json"]),
+                         ("list", []), ("list_json", ["--json"]))}
+    for k, r in runs.items():
+        check(f"r3 {k}:深巢狀落在讀得進、印不出的區間也不噴 Traceback、回 0",
+              r.returncode == 0 and b"Traceback" not in r.stderr, r.stderr[-300:])
+    one = runs["one"].stdout.decode("utf-8", "replace")
+    check("r3 太深的四行(含 100 層)都算壞行,正常那筆照讀", "Good" in one and "壞行 4" in one, one[:300])
+    long_line = [l for l in one.splitlines() if "AAAA" in l]
+    check("r3 超長工具名:截斷後狀態標記 ✗ 照樣在行尾", len(long_line) == 1 and long_line[0].rstrip().endswith("✗"),
+          repr(long_line[:1])[-80:])
+    # 超大塊檔:略過、計數,不整檔讀進記憶體
+    d = _events_write_chunk(root, "S3", "1.jsonl", [_events_ev("turn_end", "t")])
+    (d / "2.jsonl").write_text(_events_ev("turn_end", "BIG") + "\n" + "x" * 2048 + "\n", encoding="utf-8")
+    old = m._EVENTS_MAX_FILE
+    m._EVENTS_MAX_FILE = 1024
+    try:
+        r = m._events_read(root, "S3")
+    finally:
+        m._EVENTS_MAX_FILE = old
+    check("r3 超過大小上限的塊檔略過並計數", r.get("too_big") == 1 and len(r["events"]) == 1, str({k: v for k, v in r.items() if k != "events"}))
+    old = m._EVENTS_MAX_LINE
+    m._EVENTS_MAX_LINE = 200
+    try:
+        r = m._events_read(root, "S1")
+    finally:
+        m._EVENTS_MAX_LINE = old
+    check("r3 超過單行長度上限的行算壞行", r["bad"] >= 5, str(r["bad"]))
+
+
+def t_events_r3_path_trust():
+    """代碼審 r3(邊界 F4 F5 F6、正確性 F2 F3、資安 F1 F2):讀取端也要過「上層不能是連結」;路徑印出前先清控制字元;
+    worktree 的 gitdir 是相對路徑或有壞位元組時照樣判得出;--repo 給子目錄時當成那個 repo;登記過的真 worktree 清得到。"""
+    import os
+    import time as _t
+    # 讀取端:governance/runtime 是指到 repo 外的連結 → 擋下,不讀外面
+    root = _mk_repo_with_graph()
+    out = Path(tempfile.mkdtemp(prefix="gctl-events-outside-")) / "runtime"
+    _events_write_chunk(out.parent, "OUTS", "1.jsonl", [_events_ev("tool", "OUTSIDE-REPO", tool="leak", ok=True)])
+    (out.parent / "governance" / "runtime").rename(out)
+    (root / "governance").mkdir(exist_ok=True)
+    os.symlink(out, root / "governance" / "runtime")
+    for a in ([], ["--session", "OUTS"], ["--json"], ["--session", "OUTS", "--json"]):
+        r = subprocess.run([sys.executable, GRAPHCTL, "events"] + a, cwd=root, capture_output=True, text=True, check=False)
+        check(f"r3 上層是連結:events {' '.join(a)} 擋下回 2、不印外面的內容",
+              r.returncode == 2 and "OUTSIDE" not in r.stdout and "擋下" in r.stderr, f"rc={r.returncode} {r.stdout[-200:]}")
+    # 路徑帶控制字元:沒有事件帳的訊息不原樣印出
+    evil = Path(tempfile.mkdtemp(prefix="gctl-evil-")) / "r\x1b]0;pwn\x07x"
+    evil.mkdir()
+    subprocess.run(["git", "init", "-q", str(evil)], capture_output=True, check=False)
+    r = subprocess.run([sys.executable, GRAPHCTL, "events"], cwd=evil, capture_output=True, check=False)
+    check("r3 路徑帶 ESC 與 BEL:沒有事件帳的訊息不含控制字元", b"\x1b" not in r.stdout and b"\x07" not in r.stdout, repr(r.stdout[:200]))
+    # 真 worktree:絕對路徑、相對路徑、旁邊有壞項目,都清得到主 checkout 的舊會談
+    main = _mk_repo_with_graph()
+    subprocess.run(["git", "-C", str(main), "commit", "-q", "--allow-empty", "-m", "x"], capture_output=True, check=False)
+    wt = Path(tempfile.mkdtemp(prefix="gctl-r3-wt-")) / "wt"
+    subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", str(wt)], capture_output=True, check=False)
+    gfile = next((main / ".git" / "worktrees").glob("*/gitdir"))
+    now = _t.time()
+    def old_session(name):
+        d = _events_write_chunk(main, name, "1.jsonl", [_events_ev("turn_end", "2026-08-01T00:00:00+08:00")])
+        for p in (d, d / "1.jsonl"):
+            os.utime(p, (now - 90 * 86400, now - 90 * 86400))
+        return d
+    def prune(cwd, extra=()):
+        return subprocess.run([sys.executable, GRAPHCTL, "events", "--prune", "--days", "30", *extra], cwd=cwd,
+                              capture_output=True, text=True, check=False)
+    d1 = old_session("ABS")
+    r = prune(wt)
+    check("r3 登記過的真 worktree(絕對路徑):清得到主 checkout 的舊會談", r.returncode == 0 and not d1.exists(), r.stdout + r.stderr)
+    gfile.write_text(os.path.relpath(wt / ".git", gfile.parent) + "\n", encoding="utf-8")
+    d2 = old_session("REL")
+    r = prune(wt)
+    check("r3 gitdir 是相對路徑(照 gitdir 檔所在目錄解讀):照樣清得到", r.returncode == 0 and not d2.exists(), r.stdout + r.stderr)
+    bad = main / ".git" / "worktrees" / "zz-bad"
+    bad.mkdir()
+    (bad / "gitdir").write_bytes(b"\xff\xfe/x\x00y\n")
+    d3 = old_session("BAD")
+    r = prune(wt)
+    check("r3 旁邊有壞位元組或 NUL 的 gitdir:不噴 Traceback、照樣清得到",
+          r.returncode == 0 and "Traceback" not in r.stderr and not d3.exists(), r.stdout + r.stderr[-300:])
+    # --repo 給子目錄
+    (main / "docs").mkdir(exist_ok=True)
+    d4 = old_session("SUB")
+    r = prune(Path(tempfile.mkdtemp()), ("--repo", str(main / "docs")))
+    check("r3 --repo 給 repo 裡的子目錄:當成那個 repo、照樣清", r.returncode == 0 and not d4.exists(), r.stdout + r.stderr)
+
+
+def t_events_r3_honest_messages():
+    """代碼審 r3(併發 F1 F2 F3、合約 F5):還沒開始刪就失敗不說「刪了一部分」;安裝等待有總預算、逾時也稍等再查;
+    卸載做一半時只給還沒做的那步指令;來源還沒附外掛時,沒有事件帳的提示不叫人去跑 install。"""
+    import contextlib
+    import io
+    import json as _j
+    import os
+    import pathlib
+    import time as _t
+    from unittest import mock
+    m = _load_lumos_inproc()
+    # prune 掃描階段失敗:資料夾原封不動,不標成「刪了一部分」
+    base = Path(tempfile.mkdtemp(prefix="gctl-r3-prune-"))
+    a = base / "A"
+    a.mkdir()
+    for n in ("1.jsonl", "2.jsonl"):
+        (a / n).write_text("{}\n", encoding="utf-8")
+    now = _t.time()
+    for p in (a, a / "1.jsonl", a / "2.jsonl"):
+        os.utime(p, (now - 90 * 86400, now - 90 * 86400))
+    real_stat = pathlib.Path.stat
+    def flaky(self, *aa, **kw):
+        if self.name == "2.jsonl":
+            raise FileNotFoundError(str(self))
+        return real_stat(self, *aa, **kw)
+    with mock.patch.object(pathlib.Path, "stat", flaky):
+        removed, failed = m._events_prune(base, 30)
+    check("r3 掃描時檔案剛被改名:沒刪、也不說刪了一部分", removed == [] and failed == [("A", False)]
+          and (a / "1.jsonl").exists(), f"{removed} {failed}")
+    # 等待有總預算:每次查很慢時,不會照次數一直等
+    n = {"c": 0}
+    def slow():
+        n["c"] += 1
+        _t.sleep(0.5)
+        return False
+    t0 = _t.time()
+    m._lumos_plugin_wait(slow, tries=10, pause=0.05, budget=1.0)
+    check("r3 _lumos_plugin_wait 有總預算:查得慢時提早收手", n["c"] <= 3 and _t.time() - t0 < 2.5, f"{n['c']} 次")
+    # add 逾時(可能已寫入):照樣稍等再查
+    def run(env, fn, **kw):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            r = _with_env(env, lambda: fn(**kw))
+        return r, out.getvalue(), err.getvalue()
+    env, st, log, src = _fake_claude_env()
+    real_do = m._claude_do
+    def do(claude, args):
+        if args[:3] == ["plugin", "marketplace", "add"]:
+            real_do(claude, args)
+            raise subprocess.TimeoutExpired(args, 30)
+        return real_do(claude, args)
+    with mock.patch.object(m, "_claude_do", do), mock.patch.object(m, "_lumos_plugin_wait",
+                                                                    lambda check, **kw: check()):
+        r, out, err = run(env, m._sync_claude_plugin)
+    check("r3 市集 add 逾時但其實寫進去了:稍等再查後算成功", r == "ok", f"{r} {err}")
+    # 卸載做一半:只給還沒做的那步
+    env, st, _log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_FAIL"] = "uninstall"
+    st.write_text(_j.dumps({"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                            "plugins": [{"id": "lumos-ledger@lumos-toolchain", "enabled": True, "scope": "user"}]}),
+                  encoding="utf-8")
+    r, _out, err = run(env, m._teardown_claude_plugin)
+    check("r3 外掛移除失敗:市集保留(全部外掛移除成功才移市集),手動指令給外掛那條加市集",
+          "plugin uninstall lumos-ledger@lumos-toolchain" in err and "marketplace remove lumos-toolchain" in err
+          and not any(ln.startswith("plugin marketplace remove") for ln in _log.read_text(encoding="utf-8").splitlines()), err)
+    # 沒有事件帳:來源還沒附外掛 → 不叫人跑 install;附了才叫
+    root = _mk_repo_with_graph()
+    nosrc = Path(tempfile.mkdtemp(prefix="gctl-r3-nosrc-"))
+    e = dict(os.environ, LUMOS_HOME=str(nosrc))
+    r = subprocess.run([sys.executable, GRAPHCTL, "events"], cwd=root, capture_output=True, text=True, check=False, env=e)
+    check("r3 來源沒有市集檔:提示講外掛還沒附,不叫人跑 lumos install", "lumos install" not in r.stdout and "還沒" in r.stdout, r.stdout)
+    e = dict(os.environ, LUMOS_HOME=str(src))
+    r = subprocess.run([sys.executable, GRAPHCTL, "events"], cwd=root, capture_output=True, text=True, check=False, env=e)
+    check("r3 來源有市集檔:提示照舊叫人跑 lumos install", "lumos install" in r.stdout, r.stdout)
+
+
+def t_enforcement_ledger_row_symlinks():
+    """代碼審 r3(合約 F2):enforcement 那列不把連結的會談資料夾當成有寫入;事件帳上層是連結時判 unknown。"""
+    import os
+    m = _load_lumos_inproc()
+    home = Path(tempfile.mkdtemp(prefix="gctl-r3-enf-home-"))
+    row = lambda root: next(r for r in m.enforcement_status(root=root, home=home) if r["layer"] == "claude-event-ledger")
+    root = _mk_repo_with_graph()
+    base = root / "governance" / "runtime" / "events"
+    base.mkdir(parents=True)
+    fresh = Path(tempfile.mkdtemp(prefix="gctl-r3-fresh-"))
+    os.symlink(fresh, base / "LINK")
+    check("r3 只有一個連結的會談資料夾(時間是新的):不算 active", row(root)["status"] != "active", str(row(root)))
+    root2 = _mk_repo_with_graph()
+    out = Path(tempfile.mkdtemp(prefix="gctl-r3-out-"))
+    _events_write_chunk(out, "S1", "1.jsonl", [_events_ev("turn_end", "t")])
+    (root2 / "governance").mkdir(exist_ok=True)
+    os.symlink(out / "governance" / "runtime", root2 / "governance" / "runtime")
+    check("r3 事件帳上層是連結:判 unknown", row(root2)["status"] == "unknown", str(row(root2)))
+
+
+def t_ledger_plugin_files_valid():
+    """S9:repo 內的外掛檔——市集檔與外掛描述檔是合法 JSON、市集 source 是 ./ 開頭且指到存在的外掛資料夾、
+    外掛只往事件帳資料夾寫、寫的 .gitignore 內容跟 _note_audit_work_dir 相同、不用會改變行為的介面。"""
+    import json as _j
+    import re as _re
+    _need_src(".claude-plugin/marketplace.json", "mods/claude/lumos-ledger")   # 消費專案沒有外掛檔,記成 skip
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    mk = _j.loads((repo / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    check("S9 市集名是 lumos-toolchain", mk.get("name") == "lumos-toolchain", str(mk.get("name")))
+    plugins = [p for p in mk.get("plugins", []) if p.get("name") == "lumos-ledger"]
+    check("S9 市集裡 lumos-ledger 恰好一筆(市集與外掛清單一致由 t_plugin_market_matches_list 管)",
+          len(plugins) == 1, str(mk.get("plugins")))
+    src = plugins[0].get("source", "") if plugins else ""
+    check("S9 source 是 ./ 開頭的相對路徑", isinstance(src, str) and src.startswith("./"), repr(src))
+    pdir = (repo / src).resolve()
+    check("S9 source 指到存在的外掛資料夾(含外掛描述檔)", (pdir / ".claude-plugin" / "plugin.json").is_file(), str(pdir))
+    pj = _j.loads((pdir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    check("S9 外掛描述檔名稱是 lumos-ledger", pj.get("name") == "lumos-ledger", str(pj))
+    hooks = _j.loads((pdir / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    check("S9 hooks.json 只載入 register.ts", hooks == {"modules": ["./register.ts"]}, str(hooks))
+    code = (pdir / "hooks" / "register.ts").read_text(encoding="utf-8")
+    m = _re.search(r"EVENTS_REL = '([^']+)'", code)
+    check("S9 事件帳路徑是 governance/runtime/events", bool(m) and m.group(1) == "governance/runtime/events",
+          m.group(1) if m else "找不到 EVENTS_REL")
+    writes = _re.findall(r"io\.write\(`([^`]*)`", code)
+    check("S9 每一處寫檔都在 ${dir} 底下(dir = 主 checkout/EVENTS_REL)",
+          bool(writes) and all(w.startswith("${dir}/") for w in writes), str(writes))
+    check("S9 dir 由主 checkout 與 EVENTS_REL 組成", "const dir = `${s.v.main}/${EVENTS_REL}`" in code, "")
+    check("S9 寫之前逐層檢查不是連結", "if (!(await pathSafe(s.v.main, session))) {" in code, "")
+    check("S9 $.fs.write 只出現在注入的 io 裡一次", code.count("$.fs.write(") == 1, str(code.count("$.fs.write(")))
+    gi = _re.search(r"io\.write\(`\$\{dir\}/\.gitignore`, '([^']*)'\)", code)
+    lumos_src = Path(GRAPHCTL).read_text(encoding="utf-8")
+    want = _re.search(r'_write_lf\(d / "\.gitignore", "([^"]*)"\)', lumos_src)
+    check("S9 寫的 .gitignore 內容跟 _note_audit_work_dir 相同",
+          bool(gi and want) and gi.group(1).encode().decode("unicode_escape") == want.group(1).encode().decode("unicode_escape"),
+          f"{gi.group(1) if gi else None!r} vs {want.group(1) if want else None!r}")
+    banned = [("回傳拒絕", r"\bdeny\s*:"), ("改寫事件後交下去", r"next\(\{"),
+              ("改系統提示或注入內容", r"'prompt\.(compose|section|context|attachment)'"), ("改使用者輸入", r"'prompt\.submit'")]
+    for what, pat in banned:
+        check(f"S9 不用會改變行為的介面:{what}", not _re.search(pat, code), pat)
+
+
+def t_install_registers_context_plugin():
+    """Claude-mod第二批 S4:外掛清單兩支各自裝上(裝完列表確認)與移除;一支失敗只影響它自己並照實印出;
+    市集只在全部外掛移除成功後才移除,任一支失敗保留市集;來源市集檔沒列的那支略過。"""
+    import contextlib
+    import io
+    import json as _j
+    m = _load_lumos_inproc()
+    def calls(log):
+        return [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln]
+    def run(env, fn):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            r = _with_env(env, fn)
+        return r, out.getvalue(), err.getvalue()
+    check("S4 外掛清單是事件帳與交棒脈絡兩支",
+          tuple(m._LUMOS_PLUGINS) == ("lumos-ledger@lumos-toolchain", "lumos-context@lumos-toolchain"), str(m._LUMOS_PLUGINS))
+    env, st, log, src = _fake_claude_env()
+    r, out, err = run(env, m._sync_claude_plugin)
+    c = calls(log)
+    check("S4 兩支都以 --scope user 裝上、回 ok",
+          r == "ok" and all(f"plugin install {p} --scope user" in c for p in m._LUMOS_PLUGINS), f"{r} {c}")
+    check("S4 兩支各印一行已就位", all(f"{p} 已就位" in out for p in m._LUMOS_PLUGINS), out)
+    # 一支裝失敗:另一支照裝、回 failed、失敗那支印到標準錯誤
+    env, st, log, src = _fake_claude_env()
+    env.update(FAKE_CLAUDE_FAIL="install", FAKE_CLAUDE_FAIL_ID="lumos-ledger@lumos-toolchain")
+    r, out, err = run(env, m._sync_claude_plugin)
+    check("S4 事件帳外掛裝失敗:交棒脈絡外掛照裝", "plugin install lumos-context@lumos-toolchain --scope user" in calls(log), str(calls(log)))
+    check("S4 一支失敗回 failed、失敗那支印到標準錯誤",
+          r == "failed" and "lumos-ledger@lumos-toolchain 沒裝好" in err and "lumos-context@lumos-toolchain 已就位" in out, f"{r} {err} {out}")
+    # install 回成功但列表裡沒有:判那支 failed
+    env, st, log, src = _fake_claude_env()
+    env["FAKE_CLAUDE_INSTALL_NOOP"] = "lumos-context@lumos-toolchain"
+    with __import__("unittest").mock.patch.object(m, "_lumos_plugin_wait", lambda *a, **k: False):
+        r, out, err = run(env, m._sync_claude_plugin)
+    check("S4 裝完列表確認:回成功但沒裝上 → 那支 failed", r == "failed" and "lumos-context@lumos-toolchain 沒裝好" in err, f"{r} {err}")
+    # 來源市集檔沒列交棒脈絡外掛:那支略過(no-source),事件帳照裝
+    env, st, log, src = _fake_claude_env()
+    mk = src / ".claude-plugin" / "marketplace.json"
+    d = _j.loads(mk.read_text(encoding="utf-8"))
+    d["plugins"] = d["plugins"][:1]
+    mk.write_text(_j.dumps(d), encoding="utf-8")
+    r, out, err = run(env, m._sync_claude_plugin)
+    check("S4 來源沒列的那支略過、不硬裝", r == "no-source" and not any("lumos-context" in ln for ln in calls(log))
+          and "lumos-ledger@lumos-toolchain 已就位" in out, f"{r} {calls(log)}")
+    # 移除:兩支都移除,市集最後移除一次
+    def both(src):
+        return {"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                "plugins": [{"id": p, "enabled": True, "scope": "user"} for p in m._LUMOS_PLUGINS]}
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps(both(src)), encoding="utf-8")
+    r, out, err = run(env, m._teardown_claude_plugin)
+    c = calls(log)
+    rm = [i for i, ln in enumerate(c) if ln.startswith("plugin uninstall")]
+    mi = next((i for i, ln in enumerate(c) if ln.startswith("plugin marketplace remove")), -1)
+    check("S4 移除:兩支都移除、市集在它們之後只移除一次",
+          r == "ok" and len(rm) == 2 and mi > max(rm) and sum(ln.startswith("plugin marketplace remove") for ln in c) == 1, str(c))
+    # 移除時一支失敗:另一支照移、市集保留、手動指令只列失敗那支加市集
+    env, st, log, src = _fake_claude_env()
+    st.write_text(_j.dumps(both(src)), encoding="utf-8")
+    env.update(FAKE_CLAUDE_FAIL="uninstall", FAKE_CLAUDE_FAIL_ID="lumos-context@lumos-toolchain")
+    r, out, err = run(env, m._teardown_claude_plugin)
+    c = calls(log)
+    check("S4 一支移除失敗:另一支照移、市集保留",
+          r == "failed" and "plugin uninstall lumos-ledger@lumos-toolchain --scope user" in c
+          and not any(ln.startswith("plugin marketplace remove") for ln in c), str(c))
+    check("S4 手動指令只列失敗那支加市集",
+          "claude plugin uninstall lumos-context@lumos-toolchain" in err and "claude plugin uninstall lumos-ledger" not in err
+          and "claude plugin marketplace remove lumos-toolchain" in err, err)
+
+
+def t_lumos_plugin_install_edge_cases():
+    """外掛清單的邊角(從審查席唯讀隔離分支搬來,那邊代碼審 r1 的修正):裝完確認的第一次查詢出錯也交給等待重查;來源沒有市集檔的訊息走共用函式;
+    移除失敗時只有市集是我們的才叫人移除它;市集檔 plugins 欄位怪或檔首有 BOM 不丟例外。"""
+    import contextlib
+    import io
+    import json as _j
+    from unittest import mock
+    m = _load_lumos_inproc()
+    # ① 裝完第一次查詢丟錯(另一支 install 同時在寫):交給等待重查,不判失敗
+    seq = iter([False, RuntimeError("busy")])
+    def user(_c, _pid, timeout=30):
+        x = next(seq)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    with mock.patch.object(m, "_lumos_plugin_user", user), mock.patch.object(m, "_claude_do", lambda *a, **k: None), \
+         mock.patch.object(m, "_lumos_plugin_wait", lambda check, **k: True):
+        try:
+            m._lumos_plugin_ensure("claude", "lumos-context@lumos-toolchain")
+            ok = True
+        except Exception as e:  # 測的就是不得丟例外
+            ok = f"EXC {type(e).__name__}"
+    check("裝完第一次查詢丟錯:交給等待重查、不判失敗", ok is True, str(ok))
+    # ② 來源 repo 沒有市集檔:訊息跟共用函式產生的一字不差
+    env, _st, _log, src = _fake_claude_env()
+    (src / ".claude-plugin" / "marketplace.json").unlink()
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        r = _with_env(env, m._sync_claude_plugin)
+    check("來源沒有市集檔的訊息走 _plugin_sync_msg", r == "no-source" and m._plugin_sync_msg("no-source", str(src.resolve())) in out.getvalue(),
+          out.getvalue())
+    # ③ 移除失敗時:市集不是我們的(github 來源)就不叫人移除它;是我們的才列
+    def teardown_err(state, env_extra):
+        env, st, _log, src = _fake_claude_env()
+        st.write_text(_j.dumps(state(src)), encoding="utf-8")
+        env.update(env_extra)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            r = _with_env(env, m._teardown_claude_plugin)
+        return r, err.getvalue()
+    plugs = [{"id": p, "enabled": True, "scope": "user"} for p in m._LUMOS_PLUGINS]
+    r, err = teardown_err(lambda src: {"markets": [{"name": "lumos-toolchain", "source": "github", "repo": "x/y"}], "plugins": plugs},
+                          {"FAKE_CLAUDE_FAIL": "uninstall", "FAKE_CLAUDE_FAIL_ID": "lumos-context@lumos-toolchain"})
+    check("移除失敗、市集不是我們的:手動指令不列移除市集", r == "failed" and "marketplace remove" not in err, err)
+    r, err = teardown_err(lambda src: {"markets": [{"name": "lumos-toolchain", "source": "directory", "path": str(src.resolve())}],
+                                       "plugins": plugs},
+                          {"FAKE_CLAUDE_FAIL": "uninstall", "FAKE_CLAUDE_FAIL_ID": "lumos-context@lumos-toolchain"})
+    check("移除失敗、市集是我們的:手動指令列移除市集", r == "failed" and "marketplace remove lumos-toolchain" in err, err)
+    # ⑥ 手動指令行都能直接整行貼上:不在行尾帶 # 註解
+    r, err = teardown_err(lambda src: {"markets": [], "plugins": plugs}, {"FAKE_CLAUDE_RAW": "null"})
+    cmds = [ln.strip() for ln in err.splitlines() if ln.strip().startswith("claude plugin")]
+    check("手動指令行不帶 # 註解", bool(cmds) and not any("#" in c for c in cmds), err)
+    # ⑦ 裝完確認那次查詢用 10 秒逾時(claude 卡住時不拖太久)
+    tims = []
+    def user2(_c, _pid, timeout=30):
+        tims.append(timeout)
+        return len(tims) > 1
+    with mock.patch.object(m, "_lumos_plugin_user", user2), mock.patch.object(m, "_claude_do", lambda *a, **k: None):
+        m._lumos_plugin_ensure("claude", "lumos-context@lumos-toolchain")
+    check("裝完確認那次查詢用 10 秒逾時", tims[1:2] == [10], str(tims))
+    # ⑤ 回傳取最差:一支來源沒列(no-source)、另一支裝失敗(failed)→ 整體 failed
+    env, _st, _log, src = _fake_claude_env()
+    mk = src / ".claude-plugin" / "marketplace.json"
+    dd = _j.loads(mk.read_text(encoding="utf-8"))
+    dd["plugins"] = dd["plugins"][:1]
+    mk.write_text(_j.dumps(dd), encoding="utf-8")
+    env.update(FAKE_CLAUDE_FAIL="install", FAKE_CLAUDE_FAIL_ID="lumos-ledger@lumos-toolchain")
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        r = _with_env(env, m._sync_claude_plugin)
+    check("回傳取最差:no-source 加 failed → failed", r == "failed", r)
+    # ④ 市集檔怪內容:不丟例外;檔首有 BOM 照樣讀得到
+    d = Path(tempfile.mkdtemp(prefix="gctl-mk-"))
+    (d / ".claude-plugin").mkdir()
+    for raw in ('{"plugins": null}', '{"plugins": 5}', '{"plugins": [5, "x", null]}', "[]", "not json"):
+        (d / ".claude-plugin" / "marketplace.json").write_text(raw, encoding="utf-8")
+        try:
+            got = m._lumos_plugin_listed(d)
+        except Exception as e:
+            got = f"EXC {type(e).__name__}"
+        check(f"市集檔 {raw!r}:回空集合、不丟例外", got == set(), str(got))
+    (d / ".claude-plugin" / "marketplace.json").write_text(
+        "\ufeff" + _j.dumps({"name": "lumos-toolchain", "plugins": [{"name": "lumos-context"}]}), encoding="utf-8")
+    check("市集檔檔首有 BOM:照樣讀得到", m._lumos_plugin_listed(d) == {"lumos-context@lumos-toolchain"}, str(m._lumos_plugin_listed(d)))
+
+
+def t_plugin_market_matches_list():
+    """Claude-mod第二批 S5:市集檔恰好列出外掛清單的每一支,每支 source 是 ./ 開頭、資料夾裡有描述檔與 hooks/hooks.json。"""
+    import json as _j
+    _need_src(".claude-plugin/marketplace.json")   # 消費專案沒有外掛檔,記成 skip
+    m = _load_lumos_inproc()
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    mk = _j.loads((repo / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    names = sorted(f"{p.get('name')}@{mk.get('name')}" for p in mk.get("plugins", []))
+    check("S5 市集列出的外掛恰好是外掛清單那幾支", names == sorted(m._LUMOS_PLUGINS), f"{names} vs {m._LUMOS_PLUGINS}")
+    for p in mk.get("plugins", []):
+        src = p.get("source", "")
+        pdir = (repo / src).resolve()
+        check(f"S5 {p.get('name')} 的 source 是 ./ 開頭、資料夾有描述檔與 hooks/hooks.json",
+              isinstance(src, str) and src.startswith("./") and (pdir / ".claude-plugin" / "plugin.json").is_file()
+              and (pdir / "hooks" / "hooks.json").is_file(), repr(src))
+        pj = _j.loads((pdir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        check(f"S5 {p.get('name')} 描述檔的名稱跟市集一致", pj.get("name") == p.get("name"), str(pj))
+
+
+def t_context_plugin_files_valid():
+    """Claude-mod第二批 S6:lumos-context 不設環境變數,沒有網路、寫檔與執行外部程式的呼叫;
+    只掛壓縮一個事件,而且掛了 .catch。"""
+    import json as _j
+    import re as _re
+    _need_src("mods/claude/lumos-context")   # 消費專案沒有外掛檔,記成 skip
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    cdir = repo / "mods" / "claude" / "lumos-context"
+    hooks = _j.loads((cdir / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    check("S9 hooks.json 只載入 register.ts", hooks == {"modules": ["./register.ts"]}, str(hooks))
+    code = (cdir / "hooks" / "register.ts").read_text(encoding="utf-8")
+    banned = [("跑外部指令", r"\$\.process\."), ("寫檔", r"\$\.fs\."), ("網路", r"\bfetch\(|\$\.net\.|\$\.http"),
+              ("改系統提示或注入內容", r"'prompt\.(compose|section|context|attachment)'"), ("改使用者輸入", r"'prompt\.submit'"),
+              ("附加對話列", r"\$\.session\.append"), ("擋工具或派工", r"\bdeny\s*:"), ("設或讀環境變數", r"\$\.env\.")]
+    for what, pat in banned:
+        check(f"S6 不用:{what}", not _re.search(pat, code), pat)
+    check("S6 只掛壓縮一個事件",
+          sorted(set(_re.findall(r"on\('([a-z.]+)'", code))) == ["session.compact"],
+          str(_re.findall(r"on\('([a-z.]+)'", code)))
+    # CI 沒有 claude 指令,這一段只在本機有 claude 時查
+    import shutil as _sh
+    claude = _sh.which("claude")
+    if claude:
+        r = subprocess.run([claude, "plugin", "validate", str(cdir), "--json"], capture_output=True, text=True,
+                           errors="replace", check=False, timeout=60)
+        try:
+            gh = [g for c in _j.loads(r.stdout).get("contents", []) for g in c.get("gatingHooks") or []]
+        except ValueError:
+            gh = None
+        check("S6 claude plugin validate:能擋人的掛鉤只有 session.compact,而且掛了 .catch",
+              gh is not None and [g.get("hook") for g in gh] == ["session.compact"] and all(g.get("hasCatch") is True for g in gh),
+              r.stdout[-600:] if gh is None else str(gh))
+
+
+def t_ledger_rules_match_reader():
+    """外掛(TypeScript)與讀取端(Python)各寫一份的三條規則,用同一份案例檔 mods/claude/lumos-ledger/hooks/rules-fixture.ts 對齊
+    (代碼審:規則重寫兩份又沒有守衛,一邊改了另一邊不會被擋)。外掛那邊由 ledger.test.ts 跑同一批案例。"""
+    import json as _j
+    import os
+    from unittest import mock
+    _need_src("mods/claude/lumos-ledger/hooks/rules-fixture.ts")
+    m = _load_lumos_inproc()
+    repo = Path(GRAPHCTL).resolve().parent.parent
+    txt = (repo / "mods/claude/lumos-ledger/hooks/rules-fixture.ts").read_text(encoding="utf-8")
+    rules = _j.loads(txt.split("export const RULES = ", 1)[1])
+    for s in rules["session"]["ok"]:
+        check(f"會談編號 {s!r} 讀取端收", bool(m._EVENTS_SESSION_RE.fullmatch(s)), "")
+    for s in rules["session"]["bad"]:
+        check(f"會談編號 {s!r} 讀取端不收", not m._EVENTS_SESSION_RE.fullmatch(s), "")
+    for c in rules["vault"]:
+        base = Path(tempfile.mkdtemp(prefix="gctl-rules-vault-"))
+        for d in c["dirs"]:
+            (base / d).mkdir(parents=True, exist_ok=True)
+        for link, target in (c.get("links") or {}).items():
+            (base / link).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(base / target, base / link)
+        check(f"圖譜判定 {c} 讀取端一致", (m._vault_in(base) is not None) == c["want"], str(m._vault_in(base)))
+    for c in rules["main"]:
+        base = Path(tempfile.mkdtemp(prefix="gctl-rules-main-"))
+        top = base / c["top"].lstrip("/")
+        top.mkdir(parents=True, exist_ok=True)
+        common = base / c["common"].lstrip("/")
+        common.mkdir(parents=True, exist_ok=True)
+        fake = subprocess.CompletedProcess([], 0, stdout=str(common) + "\n", stderr="")
+        with mock.patch.object(m, "_lens_git", lambda *a, **k: fake):
+            got = m._events_root(top)
+        want = base / c["want"].lstrip("/")
+        check(f"主 checkout 判定 {c} 讀取端一致", Path(got).resolve() == want.resolve(), f"{got} != {want}")
 
 
 if __name__ == "__main__":

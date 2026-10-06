@@ -7,18 +7,18 @@
   "scripts/hooks/claude/_hookevent.py": "e6585e38235b33fe309d3921b0d5ccccaa79b8bbda90a082ef16443ea054072f",
   "scripts/hooks/claude/check-graph-sync.py": "b01ec12ca4514b6f6f6904194cc2d6b747f8fca919c6a5dea9bb571c3a4974de",
   "scripts/hooks/claude/ci-status-hook.py": "63e8dc1081e87f87be7fb1add9dc752f1c765853535d5d0ce61cd14a678094d4",
-  "scripts/hooks/claude/dispatch-lens-hook.py": "41ccdb9911800508f2ae0964919335ccf9b5b8750eb167caf8364848ebb92e97",
+  "scripts/hooks/claude/dispatch-lens-hook.py": "eb22df8bda22fa42f9ee0a5ea5a628c7bc24017f35bc1ef758a1ab2b83988a1a",
   "scripts/hooks/claude/impact-hook.py": "46b54c683d09448d61c4d4b3e97065d5957c41a337cb745075a5b3ff4fce791a",
   "scripts/hooks/claude/lumos-entry-hook.py": "57697cd0e456ffd0ff27dba052999e8aef16fea61d935d0eada51b8ead43e8ba",
   "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
   "scripts/hooks/post-commit": "f7ccea562d2e0fa83ec2e9d527b93a6f10204c541f377f425e42ad814a3a27dc",
   "scripts/hooks/pre-commit": "5a8dc225ef018d942f6b1d5e831db9879742a9ae20d4becb1af77d8fa5ab0656",
-  "scripts/hooks/pre-push": "3fdb2bcbc317b555fe815c8082a42f5671576db66abb960f964c91c239183e35",
-  "scripts/lumos": "2164309bf55d217f1ba96d2ead203b319e23e1085ed04200273a3cabc629abac",
+  "scripts/hooks/pre-push": "14c9c720be1320d1d2d5104d28e230fcbee98b9c9a5291b2ae14dfd299e47551",
+  "scripts/lumos": "5eec285f9918fdab130ce1a9781c696dbcd936628de2a36878ab179beb36ed02",
   "scripts/merge-claude-settings.py": "3324272bedc814d4d64a814c6a04ad89abdc08516cb199c52abd181c0a1ebeff",
   "scripts/templates/graph-discipline.md": "e0fc23ba8efeea16366423d266df1af5418786f4f58347c31cf33b7b1ec15706",
   "scripts/templates/note-audit-judge.md": "416758fba6195791098cdacebcdebe61185aede608541608d6b376aad551125e",
   "scripts/templates/note-audit-reread.md": "079c09fb31831ed47cb0e1898af9928209975524d01d7273c8886ba0863c0260",
-  "scripts/test_lumos.py": "ec01f0d5b6e19e4f484b8a3aadf08e33ea9a33d10dc27396bff4d37fa8cd762b"
+  "scripts/test_lumos.py": "772b5d028c1f0ffe006fcb1573622da87090513d10ca61abded62a11d971289c"
  }
 }

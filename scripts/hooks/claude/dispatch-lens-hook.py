@@ -10,7 +10,7 @@ Claude 路徑只做三件事:①派工詞裡逐行找 `LUMOS-IMPACT: <base>..<he
 ②subprocess 叫 `lumos dispatch-lens` ③把回傳文字接在派工詞尾端,經 updatedInput 送給子代理(additionalContext 實測到不了子代理);
 lumos 失敗時回傳裡若有角色段(role_text)照附。
 其餘判斷(範圍文法、base 主線可達、消毒、快取)全在 lumos 端。
-永不 deny、永不改 permissionDecision;失敗一律放行。★2026-09-05 起超時不再靜默★:附一行固定超時句進派工詞(Codex 走 additionalContext);其他失敗仍靜默(LUMOS_HOOK_DEBUG=1 才印 stderr)。
+永不 deny、永不改 permissionDecision;失敗一律放行。超時、建鎖錯誤與本次背景啟動失敗各附固定說明並記事件；其他失敗仍可在 LUMOS_HOOK_DEBUG=1 看 stderr。
 本檔在 ANCHOR_FILES 內:改它要 `lumos anchor approve --note`。
 """
 from __future__ import annotations
@@ -38,6 +38,14 @@ ROLE_RE = re.compile(r"^LUMOS-ROLE-CARDS:\s*on\s*$")
 # 不寫進派工詞——寫了審查席會當成要照做的指令去補算。
 TIMEOUT_NOTE = ("LUMOS-LENS:這次沒附固定席節點(鏡頭計算超時,範圍 {what})。"
                 "照派工詞審查即可,不用自己補算。")
+LOCK_UNCERTAIN_NOTE = ("LUMOS-LENS:這次沒附固定席節點(範圍 {what});鎖狀態未知,"
+                       "請檢查鎖 {lock}。鎖內 PID 是啟動者,不能只憑它已結束就刪鎖。"
+                       "照派工詞審查即可。")
+LOCK_ERROR_NOTE = ("LUMOS-LENS:這次沒附固定席節點;鎖無法建立({lock}),"
+                   "請檢查鎖位置與檔案權限。照派工詞審查即可。")
+SPAWN_ERROR_NOTE = ("LUMOS-LENS:這次沒附固定席節點;本次背景未啟動。"
+                    "同名鎖可能仍在或已由其他工作持有,請檢查鎖 {lock}。"
+                    "照派工詞審查即可。")
 
 # ★認領席位那條路要用不同的說明★(2026-09-07 代碼審 r1 通才席抓到)
 # 超時說明原本在講「背景會把快取算完」——但認領走的是完全不同的機制:它只是從派工前
@@ -314,8 +322,8 @@ def main() -> int:
         _debug("找不到 lumos,放行")
         return 0
     argv = [sys.executable, lumos, "dispatch-lens"] + ([rng] if rng else ["--spec", spec]) + ["--repo", repo, "--json"]
-    # ★薄殼★:帶 --deadline 叫 lumos;它自己會在超時時派一個脫離的行程把快取算完,
-    #   rc5 = 「這次沒算完,但背景還在算」。hook 只負責把說明接進派工詞。
+    # ★薄殼★:帶 --deadline 叫 lumos;它自己處理背景快取。rc5 可能是仍在算,
+    #   也可能是鎖狀態未知;hook 只負責把對應說明接進派工詞。
     # ★不要取整★:內層預算可能是 0.x 秒(天花板小、或已經耗掉不少),取整會變 0
     #   → lumos 那邊當成「沒給 deadline」或立刻超時,每次都走超時那條路。
     #   (第一版寫 int(),假環境算出 0.7 秒被取成 0,測試當場翻紅。)
@@ -346,15 +354,52 @@ def main() -> int:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=_run_tmo)
         except (subprocess.TimeoutExpired, OSError):
             r = None
+    lock_status = {}
+    if r is not None and r.returncode in (2, 5):
+        try:
+            parsed = json.loads((r.stdout or "").strip().splitlines()[-1])
+            if isinstance(parsed, dict):
+                lock_status = parsed
+        except (ValueError, IndexError):
+            pass
+    lock_path = str(lock_status.get("lock_path", ""))[:300].replace("\n", " ").replace("\r", " ")
+    if lock_status.get("spawn_error") is True:
+        _role = _role_text(r)
+        _emit_updated(tool_input, prompt, SPAWN_ERROR_NOTE.format(lock=lock_path)
+                      + ("\n\n" + _role if _role else ""))
+        _debug("lumos dispatch-lens 本次背景未啟動,已附錯誤說明")
+        try:
+            import sys as _s2, pathlib as _p2
+            _s2.path.insert(0, str(_p2.Path(__file__).resolve().parent))
+            from _hookevent import mark as _mark
+            _mark("error", "lumos dispatch-lens 本次背景未啟動,附了說明行")
+        except Exception:
+            pass
+        return 0
+    if lock_status.get("lock_error") is True:
+        _role = _role_text(r)
+        _emit_updated(tool_input, prompt, LOCK_ERROR_NOTE.format(lock=lock_path)
+                      + ("\n\n" + _role if _role else ""))
+        _debug("lumos dispatch-lens 鎖無法建立,已附錯誤說明")
+        try:
+            import sys as _s2, pathlib as _p2
+            _s2.path.insert(0, str(_p2.Path(__file__).resolve().parent))
+            from _hookevent import mark as _mark
+            _mark("error", "lumos dispatch-lens 鎖無法建立,附了說明行")
+        except Exception:
+            pass
+        return 0
     if r is None or r.returncode == 5:
         # 2026-09-05 第二輪審視 d1:超時不再靜默——今天 39 次派工 21 次放空,編排者完全不知道。附一行固定句(零自由文字)。
         what = rng or spec
         # 兩條路的機制不同,說明也要不同(r2 通才席:共用那句對設計審是假話)
-        _note = (TIMEOUT_NOTE.format(what=what, cmd=rng, n=10) if rng
-                 else SPEC_TIMEOUT_NOTE.format(what=what))
+        _note = (LOCK_UNCERTAIN_NOTE.format(what=what, lock=lock_path)
+                 if lock_status.get("lock_uncertain") is True else
+                 TIMEOUT_NOTE.format(what=what, cmd=rng, n=10) if rng else
+                 SPEC_TIMEOUT_NOTE.format(what=what))
         _role = _role_text(r) if r is not None else ""
         _emit_updated(tool_input, prompt, _note + ("\n\n" + _role if _role else ""))
-        _debug("lumos dispatch-lens 超時,已附超時說明行(那支仍在背景把快取算完)")
+        _debug("lumos dispatch-lens 超時或鎖狀態未知,已附對應說明行")
         # ★吞掉逾時的地方要自己講一聲★(#19 r1 外家否決席 blocker):
         # 這一條是「捕捉逾時 → 附說明 → 正常 return 0」,而 guard() 只看得到有沒有丟例外,
         # 所以不講的話這次會被記成「成功跑完」——一支每次都逾時的 hook 會穩定顯示
