@@ -3004,7 +3004,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                 ("retired", "條作廢的條目還掛活測試", "把綁定移到接手的那一條或拿掉;合約行整行刪掉或拿掉 ★INVARIANT★;條款行改寫 [manual:已撤除,見 …]"),
                 ("missing", "條佔位字或空的 [test:]", "改成真的測試名或拿掉;摘要裡要提到標記本身就包反引號"),
                 ("gone", "條 [test-gone:] 寫法或內容不對", "名稱寫被刪的那支;測試還在就改回 [test:];PITFALL 另補防回歸或 repro"),
-                ("prose", "條計劃條款仍掛 [test:] 而下一層寫了撤除(候選)", "真的撤除就標 [status:superseded] 並把綁定改寫成 [manual:已撤除,見 …]")):
+                ("prose", "條計劃條款仍掛 [test:] 或 [manual:] 而下一層寫了撤除(候選)", "真的撤除就標 [status:superseded],並把綁定改寫成 [manual:已撤除,見 …]")):
             if _tr20[_k]:
                 warn_soft(_tr20[_k], f"{len(_tr20[_k])} {_h}(不計入問題數):", _a)
     except Exception as _e20:
@@ -31973,12 +31973,23 @@ def _ns_tr_placeholder(nm):
     return nm.rsplit(":", 1)[-1].strip().lower() in _NS_TR_PLACEHOLDERS
 
 
-def _ns_test_ref_lines(rel, text):
+def _ns_clause_rows(n, text):
+    """計劃的條款解析結果(clause_bindings 列;不是計劃、沒有 [S、解析出錯都回 [])。只要狀態與行號:分類用空的索引(純函式,不建真索引)。"""
+    if n.fields.get("type") != "project" or "[S" not in text:
+        return []
+    try:
+        return clause_bindings(text, {}, None, lambda _p: set(), lambda _p: "")
+    except Exception:
+        return []
+
+
+def _ns_test_ref_lines(rel, text, rows=None):
     """一篇筆記 → [(行號, 區 summary|body, 前綴或 None, slot_parse 結果, 種類 contract|clause|plain, 實體行號清單)],依行號排。
     實體行號清單:摘要條目是起頭那行加它的續行(帳本的 new 要看名稱實際在哪一行;代碼審 r1 通才席 F1),正文行就是自己。
     摘要條目用 doctor S16 到 S19 同一支 _note_summary_entries(區塊寫法接回續行、單行寫法整個值算一條);
     正文一個實體行(圍欄裡的不算;HTML 註解照算——全檔可見性零件都不偵測註解,偵測本身是洞);
-    條款定義行取 clause_bindings 回的 defined 行號(只看 type: project;重複定義的第二行照一般正文行)。"""
+    條款定義行取 clause_bindings 回的 defined 行號(只看 type: project;重複定義的第二行照一般正文行);
+    rows=呼叫端已經算好的 _ns_clause_rows 結果(同一篇不必再解析一次),沒給就自己算。"""
     n = _note_from_text(rel, text)
     regions = _notelines_regions(text)
     entries = _note_summary_entries(n)
@@ -31989,12 +32000,7 @@ def _ns_test_ref_lines(rel, text):
         span = [no] + [i for i in range(no + 1, nxt) if i <= len(regions) and regions[i - 1] == "summary"]
         pf, _s, rest = entries[no].partition(":")
         out.append((no, "summary", pf.strip(), slot_parse(rest), "contract" if INVARIANT_RE.match(entries[no]) else "plain", span))
-    clause = set()
-    if n.fields.get("type") == "project" and "[S" in text:
-        try:      # 只要行號:分類用空的索引(純函式,不建真索引)
-            clause = {r["line"] for r in clause_bindings(text, {}, None, lambda _p: set(), lambda _p: "") if r.get("defined")}
-        except Exception:
-            clause = set()
+    clause = {r["line"] for r in (_ns_clause_rows(n, text) if rows is None else rows) if r.get("defined")}
     for no, raw in _visible_lines(text.split("\n")):
         if no > len(regions) or regions[no - 1] != "body" or "[" not in raw:
             continue
@@ -32367,6 +32373,26 @@ def _ns_tr_sub_says_retire(lines, no):
     return False
 
 
+def _ns_tr_manual_clauses(text, rows):
+    """條款解析結果(_ns_clause_rows)裡只靠人驗(state=manual)、[manual:] 還沒寫成「已撤除」、而且沒標作廢的條款定義行 → [行號]
+    (散文撤除候選用;`[manual:已撤除,見 …]` 就是撤除後的正式寫法)。[manual:] 不是 slot 欄位,_ns_test_ref_lines 列不到,
+    這裡另列;判有沒有掛、夠不夠字數、同行有 [test:] 以 [test:] 為準,一律照 clause_bindings 算好的 state,不另判
+    (代碼審 r1、r3 架構對齊席:自己再解析、把單行丟回解析器重判,都是第二種做法)。同編號定義兩次的條款 state 是
+    duplicate/shadowed,這裡不列——條款解析與處置閘已把它標成錯、要人先修重複(Enzo 2026-10-07 裁)。
+    只看正文、同行 [test:] 那條路認得測試名就讓它列——兩條路看同一批行(代碼審收尾輪正確性席)。"""
+    lines, regions = text.split("\n"), _notelines_regions(text)
+    out = []
+    for r in rows:
+        no = r["line"]
+        if r.get("state") != "manual" or all(v.startswith("已撤除") for v in r.get("manual") or []) \
+                or not 0 < no <= min(len(lines), len(regions)) or regions[no - 1] != "body":   # 跟 [test:] 那條路一樣只看正文
+            continue
+        sp = slot_parse(lines[no - 1])
+        if not _ns_tr_retired(sp) and not any(_test_names_of(sp)[0]):   # 同行的 [test:] 那條路認得(全形冒號等)就讓它列,不重複
+            out.append(no)
+    return out
+
+
 def _doctor_test_ref_lines(env, repo_root):
     """doctor S20:全庫每一篇照〈做法〉3 判(判存在只做第①道)→ {類別: [字串]};另列散文撤除候選。"""
     pidx = _platform_test_index(repo_root)
@@ -32374,17 +32400,22 @@ def _doctor_test_ref_lines(env, repo_root):
     cats = {"dead": [], "missing": [], "gone": [], "retired": [], "prose": []}
     for rel in sorted(env.notes):
         text = env_text(env, rel)        # 記憶體 Env 也讀得到(代碼審 r1 架構對齊席 F2)
-        if not text or not _NS_TR_HAS_REF_RE.search(text):
+        # 只掛 [manual:] 的計劃也要看撤除候選(Projects/撤除候選也看manual條款_計劃;rtb 一次漏了七條)
+        if not text or not (_NS_TR_HAS_REF_RE.search(text) or MANUAL_REF_RE.search(text)):
             continue
         for _p, no, why, nm, _fix in _ns_test_ref_violations(rel, text, judge):
             c = ("dead" if why.startswith("指不到") else "retired" if why.startswith("作廢") else
                  "gone" if ("test-gone" in why) else "missing")
             cats[c].append(_esc_clean(f"{rel}:{no}  {why} {nm}".rstrip(), _DOCTOR_LINE_MAX))   # 整行清控制字元(通才席 F7,同 S19)
         lines = text.split("\n")
-        for no, _reg, _pf, sp, kind, _span in _ns_test_ref_lines(rel, text):
+        rows = _ns_clause_rows(_note_from_text(rel, text), text)   # 同一篇只解析一次,[test:] 與 [manual:] 兩條路共用
+        for no, _reg, _pf, sp, kind, _span in _ns_test_ref_lines(rel, text, rows):
             # 已標作廢的條款另由「作廢還掛活測試」那條管,這裡不重複列
             if kind == "clause" and not _ns_tr_retired(sp) and any(_test_names_of(sp)[0]) and _ns_tr_sub_says_retire(lines, no):
                 cats["prose"].append(_esc_clean(f"{rel}:{no}  條款仍掛 [test:],下一層寫了撤除", _DOCTOR_LINE_MAX))
+        for no in _ns_tr_manual_clauses(text, rows):
+            if _ns_tr_sub_says_retire(lines, no):
+                cats["prose"].append(_esc_clean(f"{rel}:{no}  條款仍掛 [manual:],下一層寫了撤除", _DOCTOR_LINE_MAX))
     return cats
 
 
@@ -41933,6 +41964,21 @@ def _ci_write(env, rec):
     return _jsonl_append_verified(path, rec, "dedup_key", key)
 
 
+def _ci_resolve_sha(root, git_out, sha):
+    """ci-wait 要查的 sha → (完整 sha 或 None, 錯誤訊息或 None)。沒給就取 HEAD(取不到回 None,呼叫端照舊判 unavailable);
+    給了短的就用既有 _lens_full_sha 在本機換成完整的——GitHub 用完整 sha 篩 run,短的永遠查不到、等到逾時判 no-run
+    (rtb 2026-10-07 回報)。抽出來只是為了不讓 cmd_ci_wait 再變複雜,換法與形狀都用既有那兩支。"""
+    if not sha:
+        return (git_out("rev-parse", "HEAD") or None), None
+    if _LENS_SHA_RE.match(sha):
+        return sha, None
+    full = _lens_full_sha(root, sha)
+    if full is None:
+        return None, (f"擋下:--sha {sha!r} 換不成完整的提交編號——本機沒有這個提交(先 git fetch)、短碼對到不只一個提交"
+                      "(多給幾碼)、或 git 跑不起來;也可以直接給完整 40 碼")
+    return full, None
+
+
 def cmd_ci_wait(env, timeout=1800.0, repo_dir=None, sha=None, branch=None,
                 grace=30.0, as_json=False):
     """[S1] push 後同輪等 CI 結論。綠 rc0/紅 rc1/未定·逾時·no-run·工具缺席 rc0/帳寫失敗·參數錯 rc2。"""
@@ -41976,8 +42022,10 @@ def cmd_ci_wait(env, timeout=1800.0, repo_dir=None, sha=None, branch=None,
         except (OSError, subprocess.TimeoutExpired):
             return ""        # git 缺席/逾時也 fail-open(絕不 traceback)
         return r.stdout.strip() if r.returncode == 0 else ""
-    if not sha:
-        sha = _git_out("rev-parse", "HEAD") or None
+    sha, sha_err = _ci_resolve_sha(root, _git_out, sha)
+    if sha_err:
+        print(sha_err, file=sys.stderr)
+        return 2
     if not branch:
         branch = _git_out("rev-parse", "--abbrev-ref", "HEAD")
     if not sha:
