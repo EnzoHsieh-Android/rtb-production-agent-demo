@@ -7,3 +7,5 @@
 .signoff-log.jsonl
 .usage-log.jsonl
 .ci-log.jsonl
+.governance-local.jsonl
+.usage-local.jsonl
